@@ -1,34 +1,34 @@
-# klogging
+# kloggy
 
 Logging helper: nice zero-config output for libraries, without fighting the app's logging setup.
 It started as a shared helper for [HPI](https://github.com/karlicoss/HPI), [promnesia](https://github.com/karlicoss/promnesia),
   [orger](https://github.com/karlicoss/orger), [cachew](https://github.com/karlicoss/cachew) and data exporters like [rexport](https://github.com/karlicoss/rexport),
   but nothing in it is specific to them.
 
-It's developed requirements-first: see [requirements](https://github.com/karlicoss/klogging/blob/master/doc/requirements.md), linked to the tests validating them.
+It's developed requirements-first: see [requirements](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md), linked to the tests validating them.
 Work in progress, only the requirements listed there are implemented so far.
 
 Library code gets plain stdlib loggers:
 
 ```python
-from klogging import get_logger
+from kloggy import get_logger
 
 logger = get_logger(__name__)
 ```
 
-- if logging isn't configured, records are never printed as bare messages ([Z1](https://github.com/karlicoss/klogging/blob/master/doc/requirements.md#z1)),
-    and INFO is shown, e.g. for progress ([L2](https://github.com/karlicoss/klogging/blob/master/doc/requirements.md#l2))
-- if the app configures logging later (e.g. `basicConfig()` in `main()`), klogging steps aside for good:
-    no duplicates ([Z2](https://github.com/karlicoss/klogging/blob/master/doc/requirements.md#z2)),
-    and the app's levels apply ([L3](https://github.com/karlicoss/klogging/blob/master/doc/requirements.md#l3))
-- a stray `logging.warning(...)` (which implicitly calls `basicConfig()`) doesn't switch klogging off ([Z3](https://github.com/karlicoss/klogging/blob/master/doc/requirements.md#z3))
-- if the app already configured logging, klogging doesn't touch it ([L1](https://github.com/karlicoss/klogging/blob/master/doc/requirements.md#l1))
+- if logging isn't configured, records are never printed as bare messages ([Z1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z1)),
+    and INFO is shown, e.g. for progress ([L2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l2))
+- if the app configures logging later (e.g. `basicConfig()` in `main()`), kloggy steps aside for good:
+    no duplicates ([Z2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z2)),
+    and the app's levels apply ([L3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l3))
+- a stray `logging.warning(...)` (which implicitly calls `basicConfig()`) doesn't switch kloggy off ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3))
+- if the app already configured logging, kloggy doesn't touch it ([L1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l1))
 
-## Using klogging in a package
+## Using kloggy in a package
 
 Create a module-level logger in each module with `get_logger(__name__)`, same as the usual stdlib convention `logging.getLogger(__name__)`.
 
-klogging attaches its handler to the top-level package logger, i.e. the first dotted component of the name (`pkg` for `pkg.sub.module`).
+kloggy attaches its handler to the top-level package logger, i.e. the first dotted component of the name (`pkg` for `pkg.sub.module`).
 Levels can be configured for the whole package or for individual modules as usual:
 
 ```python
@@ -42,7 +42,7 @@ Avoid `get_logger(__package__)`:
 
 Avoid logging via the root logger (`logging.warning(...)` etc.), use the module logger instead (ruff rule [`LOG015`](https://docs.astral.sh/ruff/rules/root-logger-call/) catches these).
 Such calls implicitly call `basicConfig()`.
-klogging copes with that ([Z3](https://github.com/karlicoss/klogging/blob/master/doc/requirements.md#z3)), but an app's own `basicConfig(...)` called later is then silently ignored.
+kloggy copes with that ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3)), but an app's own `basicConfig(...)` called later is then silently ignored.
 
 ## Development
 

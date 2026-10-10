@@ -13,7 +13,7 @@ def run(test: Callable[..., None], *, test_format: bool = True, **kwargs: object
     Runs a function's source in a separate process, since logging setup is global state.
     The function must import its dependencies locally and receive test parameters as explicit arguments.
     Arguments are either Python literals (e.g. strings, integers, booleans), or other functions following the same rules.
-    Uses a distinct format for klogging unless test_format=False.
+    Uses a distinct format for kloggy unless test_format=False.
     Returns stderr lines.
     """
     assert inspect.isfunction(test), test
@@ -38,10 +38,10 @@ def run(test: Callable[..., None], *, test_format: bool = True, **kwargs: object
         ]
     )
     # make sure user's environment doesn't interfere
-    assert '_KLOGGING_TEST_FORMAT' not in os.environ
+    assert '_KLOGGY_TEST_FORMAT' not in os.environ
     env = {k: v for k, v in os.environ.items() if not k.startswith('LOGGING_')}
     if test_format:
-        env['_KLOGGING_TEST_FORMAT'] = 'KLOGGING %(levelname)s %(name)s: %(message)s'
+        env['_KLOGGY_TEST_FORMAT'] = 'KLOGGY %(levelname)s %(name)s: %(message)s'
     res = subprocess.run(
         [sys.executable, '-c', code],
         env=env,

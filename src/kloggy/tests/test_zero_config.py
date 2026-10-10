@@ -1,5 +1,5 @@
 """
-Z: output when logging isn't configured, i.e. klogging's fallback handler.
+Z: output when logging isn't configured, i.e. kloggy's fallback handler.
 """
 
 import logging
@@ -26,12 +26,12 @@ def test_z1_stdlib_baseline() -> None:
 
 def test_z1_not_bare() -> None:
     """
-    Without any configuration, klogging output includes the level and the logger name.
+    Without any configuration, kloggy output includes the level and the logger name.
     The specific format isn't checked, that's up to F21/F24.
     """
 
     def test() -> None:
-        from klogging import get_logger
+        from kloggy import get_logger
 
         get_logger('my.foo').error('some error')
 
@@ -44,11 +44,11 @@ def test_z1_not_bare() -> None:
 @pytest.mark.parametrize('setup', ['root', 'package', 'logger', 'null'])
 def test_z2_configured_after(setup: str) -> None:
     """
-    Configuring logging after klogging set up switches klogging output off.
+    Configuring logging after kloggy set up switches kloggy output off.
     Each record is printed once, by the app's handlers (or not at all for a `NullHandler`).
     """
 
-    # ways the app may configure logging after klogging set up the 'my' package logger
+    # ways the app may configure logging after kloggy set up the 'my' package logger
     def configure(*, setup: str) -> None:
         import logging
 
@@ -80,7 +80,7 @@ def test_z2_configured_after(setup: str) -> None:
     }[setup]
 
     def test(*, configure: Callable[..., None], setup: str) -> None:
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         logger.warning('before')
@@ -88,21 +88,21 @@ def test_z2_configured_after(setup: str) -> None:
         logger.warning('after')
 
     assert run(test, configure=configure, setup=setup) == [
-        'KLOGGING WARNING my.foo: before',
+        'KLOGGY WARNING my.foo: before',
         *expected,
     ]
 
 
 def test_z2_stays_off_when_unconfigured() -> None:
     """
-    Once the app's handler is removed again, klogging output stays off.
-    Output is then what it would be without klogging: stdlib's levels and `logging.lastResort`.
+    Once the app's handler is removed again, kloggy output stays off.
+    Output is then what it would be without kloggy: stdlib's levels and `logging.lastResort`.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         h = logging.StreamHandler()
@@ -125,7 +125,7 @@ def test_z2_stays_off_when_configured_at_setup() -> None:
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         h = logging.StreamHandler()
         h.setFormatter(logging.Formatter('APP %(name)s: %(message)s'))
@@ -140,14 +140,14 @@ def test_z2_stays_off_when_configured_at_setup() -> None:
 
 def test_z2_stays_off_per_logger() -> None:
     """
-    klogging only steps aside for loggers logging was configured for.
-    Other loggers in the same package keep klogging output, also after the app's handler is removed.
+    kloggy only steps aside for loggers logging was configured for.
+    Other loggers in the same package keep kloggy output, also after the app's handler is removed.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         plan = get_logger('my.plan')
         other = get_logger('my.other')
@@ -155,10 +155,10 @@ def test_z2_stays_off_per_logger() -> None:
         h.setFormatter(logging.Formatter('APP %(name)s: %(message)s'))
         logging.getLogger('my.plan').addHandler(h)
         plan.warning('configured')  # LOGS: APP my.plan: configured
-        other.info('not configured')  # LOGS: KLOGGING INFO my.other: not configured
+        other.info('not configured')  # LOGS: KLOGGY INFO my.other: not configured
         logging.getLogger('my.plan').removeHandler(h)
         plan.warning('unconfigured again')  # LOGS: unconfigured again
-        other.info('still not configured')  # LOGS: KLOGGING INFO my.other: still not configured
+        other.info('still not configured')  # LOGS: KLOGGY INFO my.other: still not configured
 
     check_logs(test)
 
@@ -168,7 +168,7 @@ CONFIGURATION_CHANGES = {
     'debug': (
         logging.DEBUG,
         [
-            # no 'during the change': klogging stepped aside during the level check, and stdlib's logging.lastResort only shows warnings
+            # no 'during the change': kloggy stepped aside during the level check, and stdlib's logging.lastResort only shows warnings
             'APP DEBUG my.foo: after 1',
             'APP DEBUG my.foo: after 2',
             'APP WARNING my.foo: some warning',
@@ -189,8 +189,8 @@ CONFIGURATION_CHANGES = {
 def test_z2_configuration_changes_during_level_check(level: int, expected: list[str]) -> None:
     """
     If logging stops being configured right in the middle of a level check (e.g. another thread removes the app's handler),
-      klogging has stepped aside for good: once the handler is back, the app's levels apply.
-    Stdlib caches level checks and only clears the cache on setLevel(), so klogging's loggers don't use that cache until they step aside.
+      kloggy has stepped aside for good: once the handler is back, the app's levels apply.
+    Stdlib caches level checks and only clears the cache on setLevel(), so kloggy's loggers don't use that cache until they step aside.
     """
 
     def test(*, level: int) -> None:
@@ -198,8 +198,8 @@ def test_z2_configuration_changes_during_level_check(level: int, expected: list[
         import threading
         from unittest.mock import patch
 
-        import klogging
-        from klogging import get_logger
+        import kloggy
+        from kloggy import get_logger
 
         logging.getLogger().setLevel(logging.DEBUG if level == logging.DEBUG else logging.WARNING)
         logger = get_logger('my.foo')
@@ -210,7 +210,7 @@ def test_z2_configuration_changes_during_level_check(level: int, expected: list[
 
         checked = threading.Event()
         resume = threading.Event()
-        original = klogging._is_configured
+        original = kloggy._is_configured
         calls: list[bool] = []
 
         def pause_after_first_check(logger: logging.Logger) -> bool:
@@ -221,7 +221,7 @@ def test_z2_configuration_changes_during_level_check(level: int, expected: list[
                 assert resume.wait(timeout=5)
             return result
 
-        with patch.object(klogging, '_is_configured', pause_after_first_check):
+        with patch.object(kloggy, '_is_configured', pause_after_first_check):
             t = threading.Thread(target=logger.log, args=(level, 'during the change'))
             t.start()
             assert checked.wait(timeout=5)
@@ -241,43 +241,43 @@ def test_z2_configuration_changes_during_level_check(level: int, expected: list[
 
 def test_z3_stray_call_before() -> None:
     """
-    A stray `logging.warning()` before klogging sets up implicitly calls `basicConfig()`, but doesn't stop klogging from setting up.
-    klogging's records aren't duplicated by root's default handler.
+    A stray `logging.warning()` before kloggy sets up implicitly calls `basicConfig()`, but doesn't stop kloggy from setting up.
+    kloggy's records aren't duplicated by root's default handler.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         # LOGS: WARNING:root:stray
         logging.warning('stray')  # noqa: LOG015 - deliberately tests implicit basicConfig()
         logger = get_logger('my.foo')
-        logger.warning('some warning')  # LOGS: KLOGGING WARNING my.foo: some warning
+        logger.warning('some warning')  # LOGS: KLOGGY WARNING my.foo: some warning
 
     check_logs(test)
 
 
 def test_z3_stray_call_after() -> None:
     """
-    A stray `logging.warning()` after klogging set up doesn't switch klogging off.
-    klogging's records are printed once, while other loggers' records still go to root's default handler.
+    A stray `logging.warning()` after kloggy set up doesn't switch kloggy off.
+    kloggy's records are printed once, while other loggers' records still go to root's default handler.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
-        logger.warning('before')  # LOGS: KLOGGING WARNING my.foo: before
+        logger.warning('before')  # LOGS: KLOGGY WARNING my.foo: before
         # LOGS: WARNING:root:stray
         logging.warning('stray')  # noqa: LOG015 - deliberately tests implicit basicConfig()
         # printed once, not again by root's default handler
-        logger.warning('after')  # LOGS: KLOGGING WARNING my.foo: after
+        logger.warning('after')  # LOGS: KLOGGY WARNING my.foo: after
         # root's default handler still prints everything else
-        logging.getLogger('other').warning('not klogging')  # LOGS: WARNING:other:not klogging
-        assert logging.getLogger().handlers[0].filters == []  # klogging doesn't touch root's handler
+        logging.getLogger('other').warning('not kloggy')  # LOGS: WARNING:other:not kloggy
+        assert logging.getLogger().handlers[0].filters == []  # kloggy doesn't touch root's handler
 
     check_logs(test)
 
@@ -285,9 +285,9 @@ def test_z3_stray_call_after() -> None:
 @pytest.mark.parametrize('setup', ['force', 'customised'])
 def test_z3_configured_after_stray_call(setup: str) -> None:
     """
-    Explicitly configuring logging after a stray call still switches klogging off,
+    Explicitly configuring logging after a stray call still switches kloggy off,
       either via `basicConfig(force=True)` or by customising the handler the stray call created.
-    The filter klogging added to that handler doesn't drop anything then.
+    The filter kloggy added to that handler doesn't drop anything then.
     """
 
     def configure(*, setup: str) -> None:
@@ -303,12 +303,12 @@ def test_z3_configured_after_stray_call(setup: str) -> None:
     def test(*, configure: Callable[..., None], setup: str) -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         # LOGS: WARNING:root:stray
         logging.warning('stray')  # noqa: LOG015 - deliberately tests implicit basicConfig()
-        logger.warning('before')  # LOGS: KLOGGING WARNING my.foo: before
+        logger.warning('before')  # LOGS: KLOGGY WARNING my.foo: before
         configure(setup=setup)
         logger.warning('after')  # LOGS: APP WARNING my.foo: after
 
@@ -317,17 +317,17 @@ def test_z3_configured_after_stray_call(setup: str) -> None:
 
 def test_z3_explicit_bare_basic_config() -> None:
     """
-    Accepted misfire: an explicit bare `basicConfig()` looks the same as one called implicitly by a stray call, so klogging stays on.
+    Accepted misfire: an explicit bare `basicConfig()` looks the same as one called implicitly by a stray call, so kloggy stays on.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logging.basicConfig()
         logger = get_logger('my.foo')
-        logger.warning('some warning')  # LOGS: KLOGGING WARNING my.foo: some warning
+        logger.warning('some warning')  # LOGS: KLOGGY WARNING my.foo: some warning
 
     check_logs(test)
 
@@ -341,19 +341,19 @@ def test_z3_stray_call_keeps_info() -> None:
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         # LOGS: WARNING:root:stray
         logging.warning('stray')  # noqa: LOG015 - deliberately tests implicit basicConfig()
-        logger.info('some info')  # LOGS: KLOGGING INFO my.foo: some info
+        logger.info('some info')  # LOGS: KLOGGY INFO my.foo: some info
 
     check_logs(test)
 
 
 def test_z27_no_deadlock_with_dict_config() -> None:
     """
-    klogging's handler never waits for logging's module lock while holding its own lock.
+    kloggy's handler never waits for logging's module lock while holding its own lock.
     `dictConfig()` holds the module lock while it acquires every handler's lock, so logging from another thread could deadlock otherwise.
     """
 
@@ -361,7 +361,7 @@ def test_z27_no_deadlock_with_dict_config() -> None:
         import logging
         import threading
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         [handler] = logging.getLogger('my').handlers

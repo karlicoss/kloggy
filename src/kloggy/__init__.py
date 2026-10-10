@@ -12,7 +12,7 @@ import sys
 from typing import TextIO
 
 
-class _KloggingLogger(logging.Logger):
+class _KloggyLogger(logging.Logger):
     """
     Class of loggers returned by get_logger().
     While logging isn't configured, their level defaults to INFO rather than root's WARNING (L2).
@@ -22,7 +22,7 @@ class _KloggingLogger(logging.Logger):
     def isEnabledFor(self, level: int) -> bool:
         if _has_stepped_aside(self):
             return super().isEnabledFor(level)
-        # not using stdlib's cache: it's only cleared on setLevel(), but until klogging steps aside, the result depends on whether logging is configured
+        # not using stdlib's cache: it's only cleared on setLevel(), but until kloggy steps aside, the result depends on whether logging is configured
         if self.disabled or self.manager.disable >= level:
             return False
         return level >= self._level_while_unconfigured()
@@ -45,16 +45,16 @@ class _KloggingLogger(logging.Logger):
         return logging.INFO
 
 
-_klogging_classes: dict[type[logging.Logger], type[logging.Logger]] = {logging.Logger: _KloggingLogger}
+_kloggy_classes: dict[type[logging.Logger], type[logging.Logger]] = {logging.Logger: _KloggyLogger}
 
 
-def _klogging_class(cls: type[logging.Logger]) -> type[logging.Logger]:
-    if issubclass(cls, _KloggingLogger):
+def _kloggy_class(cls: type[logging.Logger]) -> type[logging.Logger]:
+    if issubclass(cls, _KloggyLogger):
         return cls
-    if cls not in _klogging_classes:
+    if cls not in _kloggy_classes:
         # e.g. the app set its own class via logging.setLoggerClass()
-        _klogging_classes[cls] = type(f'Klogging{cls.__name__}', (_KloggingLogger, cls), {})
-    return _klogging_classes[cls]
+        _kloggy_classes[cls] = type(f'Kloggy{cls.__name__}', (_KloggyLogger, cls), {})
+    return _kloggy_classes[cls]
 
 
 def _drop(record: logging.LogRecord) -> None:
@@ -68,7 +68,7 @@ def _drop(record: logging.LogRecord) -> None:
 class _FallbackHandler(logging.StreamHandler[TextIO]):
     """
     Used instead of stdlib's logging.lastResort which prints bare messages (Z1).
-    Only prints a record if klogging hasn't stepped aside for its logger, i.e. logging was never configured for it (Z2).
+    Only prints a record if kloggy hasn't stepped aside for its logger, i.e. logging was never configured for it (Z2).
     """
 
     def handle(self, record: logging.LogRecord) -> bool:
@@ -82,7 +82,7 @@ class _FallbackHandler(logging.StreamHandler[TextIO]):
                 _drop(record)
             return printed
         if record.levelno < logger.getEffectiveLevel():
-            # created just before the app configured logging, at klogging's INFO (L3)
+            # created just before the app configured logging, at kloggy's INFO (L3)
             _drop(record)
         elif not _reaches_other_handlers(logger):
             # the app removed its handlers since, so same as stdlib without any handlers (Z2)
@@ -118,7 +118,7 @@ def _is_default_basic_config_handler(handler: logging.Handler) -> bool:
 
 def _is_configured(logger: logging.Logger) -> bool:
     """
-    Whether records from this logger would reach some handler other than klogging's own (Z1),
+    Whether records from this logger would reach some handler other than kloggy's own (Z1),
       not counting root's default basicConfig() handler (Z3).
     Same walk as stdlib's Logger.callHandlers/Logger.hasHandlers.
     """
@@ -138,7 +138,7 @@ def _is_configured(logger: logging.Logger) -> bool:
 
 def _reaches_other_handlers(logger: logging.Logger) -> bool:
     """
-    Whether records from this logger would reach any handler other than klogging's own, including root's default basicConfig() handler.
+    Whether records from this logger would reach any handler other than kloggy's own, including root's default basicConfig() handler.
     Same walk as stdlib's Logger.callHandlers/Logger.hasHandlers.
     """
     current: logging.Logger | None = logger
@@ -151,13 +151,13 @@ def _reaches_other_handlers(logger: logging.Logger) -> bool:
     return False
 
 
-# names of loggers klogging has stepped aside for (Z2)
+# names of loggers kloggy has stepped aside for (Z2)
 _stepped_aside: set[str] = set()
 
 
 def _has_stepped_aside(logger: logging.Logger) -> bool:
     """
-    Whether klogging is out of the picture for this logger.
+    Whether kloggy is out of the picture for this logger.
     It steps aside for good the first time it notices logging configured for the logger (Z2).
     """
     if logger.name in _stepped_aside:
@@ -179,11 +179,11 @@ def get_logger(name: str) -> logging.Logger:
     if not already_set_up:
         handler = _FallbackHandler()
         # Z1 only asks for level and logger name, the specific format is up to F21/F24
-        # private test override distinguishes klogging's output without adding setup code to the examples
-        fmt = os.environ.get('_KLOGGING_TEST_FORMAT', logging.BASIC_FORMAT)
+        # private test override distinguishes kloggy's output without adding setup code to the examples
+        fmt = os.environ.get('_KLOGGY_TEST_FORMAT', logging.BASIC_FORMAT)
         handler.setFormatter(logging.Formatter(fmt))
         package.addHandler(handler)
 
     # same object, but with INFO by default while logging isn't configured (L2, L3)
-    logger.__class__ = _klogging_class(type(logger))
+    logger.__class__ = _kloggy_class(type(logger))
     return logger

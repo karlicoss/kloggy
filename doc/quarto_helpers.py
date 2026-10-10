@@ -11,7 +11,7 @@ from IPython.display import Markdown
 
 DOC = Path(__file__).parent
 REPO = DOC.parent
-TESTS = REPO / 'src' / 'klogging' / 'tests'
+TESTS = REPO / 'src' / 'kloggy' / 'tests'
 
 
 def _collect_tests() -> dict[str, str]:

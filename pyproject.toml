@@ -1,7 +1,7 @@
 # see https://github.com/karlicoss/pymplate for up-to-date reference
 [project]
 dynamic = ["version"]  # version is managed by build backend
-name = "klogging"
+name = "kloggy"
 dependencies = [
 ]
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ authors     = [{name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.c
 maintainers = [{name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"}]
 
 [project.urls]  # pypi will fetch some github stats/link, so somewhat useful
-Homepage = "https://github.com/karlicoss/klogging"
+Homepage = "https://github.com/karlicoss/kloggy"
 ##
 
 
@@ -45,7 +45,7 @@ build-backend = "hatchling.build"
 
 # unfortunately have to duplicate project name here atm, see https://github.com/pypa/hatch/issues/1894
 [tool.hatch.build.targets.wheel]
-packages = ["src/klogging"]
+packages = ["src/kloggy"]
 
 [tool.hatch.version]
 source = "vcs"
@@ -57,7 +57,7 @@ local_scheme = "dirty-tag"
 
 [tool.mypy]
 # default targets when mypy is run without explicit ones
-packages = ["klogging"]
+packages = ["kloggy"]
 
 pretty = true
 show_error_context = true
@@ -218,7 +218,7 @@ quote-style = "preserve"
 python_files = ["*.py"]
 
 # default targets when pytest is run without explicit ones (package names because of --pyargs below)
-testpaths = ["klogging"]
+testpaths = ["kloggy"]
 
 # this is necessary for --pyargs to discover implicit namespace packages correctly
 consider_namespace_packages = true

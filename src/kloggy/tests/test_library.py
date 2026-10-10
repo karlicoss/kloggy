@@ -12,11 +12,11 @@ from .common import check_logs, run
 @pytest.mark.parametrize('setup', ['root', 'root_level', 'package', 'null'])
 def test_l1_configured_before_untouched(setup: str) -> None:
     """
-    If the app configured logging before klogging sets up the package logger, klogging leaves it alone.
+    If the app configured logging before kloggy sets up the package logger, kloggy leaves it alone.
     The package logger keeps its handlers and level, and output is the same as with plain stdlib loggers.
     """
 
-    # ways the app may have configured logging before klogging sets up the 'my' package logger
+    # ways the app may have configured logging before kloggy sets up the 'my' package logger
     def configure(*, setup: str) -> None:
         import logging
 
@@ -47,15 +47,15 @@ def test_l1_configured_before_untouched(setup: str) -> None:
         'null': [],
     }[setup]
 
-    def test(*, configure: Callable[..., None], setup: str, use_klogging: bool) -> None:
+    def test(*, configure: Callable[..., None], setup: str, use_kloggy: bool) -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         configure(setup=setup)
         handlers_before = list(logging.getLogger('my').handlers)
 
-        getter = get_logger if use_klogging else logging.getLogger
+        getter = get_logger if use_kloggy else logging.getLogger
         logger = getter('my.foo')
 
         package = logging.getLogger('my')
@@ -65,43 +65,43 @@ def test_l1_configured_before_untouched(setup: str) -> None:
         logger.warning('some warning')
         logger.error('some error')
 
-    with_klogging = run(test, configure=configure, setup=setup, use_klogging=True)
-    without_klogging = run(test, configure=configure, setup=setup, use_klogging=False)
-    assert with_klogging == without_klogging == expected
+    with_kloggy = run(test, configure=configure, setup=setup, use_kloggy=True)
+    without_kloggy = run(test, configure=configure, setup=setup, use_kloggy=False)
+    assert with_kloggy == without_kloggy == expected
 
 
 def test_l2_info_by_default() -> None:
     """
-    Without any configuration, everything from INFO up from klogging loggers is shown (e.g. INFO for a sense of progress), DEBUG isn't.
+    Without any configuration, everything from INFO up from kloggy loggers is shown (e.g. INFO for a sense of progress), DEBUG isn't.
     """
 
     def test() -> None:
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         logger.debug('some debug')
-        logger.info('some info')  # LOGS: KLOGGING INFO my.foo: some info
-        logger.warning('some warning')  # LOGS: KLOGGING WARNING my.foo: some warning
-        logger.error('some error')  # LOGS: KLOGGING ERROR my.foo: some error
-        logger.critical('some critical')  # LOGS: KLOGGING CRITICAL my.foo: some critical
+        logger.info('some info')  # LOGS: KLOGGY INFO my.foo: some info
+        logger.warning('some warning')  # LOGS: KLOGGY WARNING my.foo: some warning
+        logger.error('some error')  # LOGS: KLOGGY ERROR my.foo: some error
+        logger.critical('some critical')  # LOGS: KLOGGY CRITICAL my.foo: some critical
 
     check_logs(test)
 
 
 def test_l3_configured_after() -> None:
     """
-    If the app configures logging after klogging set up (e.g. `basicConfig()` in `main()` after imports),
+    If the app configures logging after kloggy set up (e.g. `basicConfig()` in `main()` after imports),
       the app's levels apply straight away.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
-        logger.info('before 1')  # LOGS: KLOGGING INFO my.foo: before 1
-        logger.info('before 2')  # LOGS: KLOGGING INFO my.foo: before 2
+        logger.info('before 1')  # LOGS: KLOGGY INFO my.foo: before 1
+        logger.info('before 2')  # LOGS: KLOGGY INFO my.foo: before 2
         logging.basicConfig(format='APP %(levelname)s %(name)s: %(message)s')
         logger.info('after 1')  # INFO right after configuration isn't let through
         logger.info('after 2')  # INFO right after configuration isn't let through
@@ -120,7 +120,7 @@ def test_l3_configured_after_plain_logger() -> None:
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         get_logger('my.foo')
         logger = logging.getLogger('my.plain')
@@ -138,18 +138,18 @@ def test_l3_configured_after_plain_logger() -> None:
 def test_l3_configured_after_on_module_logger() -> None:
     """
     Same as test_l3_configured_after, but the app attaches its handler to the module's own logger instead of root.
-    That handler sees records before klogging's handler on the package logger does,
+    That handler sees records before kloggy's handler on the package logger does,
       but the stray record isn't created in the first place.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
-        logger.info('before 1')  # LOGS: KLOGGING INFO my.foo: before 1
-        logger.info('before 2')  # LOGS: KLOGGING INFO my.foo: before 2
+        logger.info('before 1')  # LOGS: KLOGGY INFO my.foo: before 1
+        logger.info('before 2')  # LOGS: KLOGGY INFO my.foo: before 2
         h = logging.StreamHandler()
         h.setFormatter(logging.Formatter('APP %(levelname)s %(name)s: %(message)s'))
         logger.addHandler(h)
@@ -170,9 +170,9 @@ def test_l3_configured_after_on_module_logger_plain_logger() -> None:
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
-        get_logger('my.foo')  # klogging sets up
+        get_logger('my.foo')  # kloggy sets up
         logger = logging.getLogger('my.plain')
         logger.info('before 1')  # a plain logger keeps stdlib's levels, so no INFO
         logger.info('before 2')
@@ -186,17 +186,17 @@ def test_l3_configured_after_on_module_logger_plain_logger() -> None:
 
 def test_l3_configured_after_more_verbose() -> None:
     """
-    If the app asks for more than INFO after klogging set up (e.g. `basicConfig(level=DEBUG)` in `main()` after imports),
+    If the app asks for more than INFO after kloggy set up (e.g. `basicConfig(level=DEBUG)` in `main()` after imports),
       DEBUG records show up straight away.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
-        logger.debug('debug before configuration')  # klogging's default is INFO
+        logger.debug('debug before configuration')  # kloggy's default is INFO
         logging.basicConfig(level=logging.DEBUG, format='APP %(levelname)s %(name)s: %(message)s')
         logger.debug('debug 1')  # LOGS: APP DEBUG my.foo: debug 1
         # DEBUG doesn't depend on a record at INFO or above passing through first
@@ -210,23 +210,23 @@ def test_l3_configured_after_on_subpackage() -> None:
     """
     Whether logging is configured is decided per logger, so the app taking over one subpackage doesn't affect the others.
     Here the app attaches its handler to `my.reddit` only, which `my.reddit.rexport` records reach via that intermediate logger,
-      while `my.other` is still printed by klogging, with INFO by default.
+      while `my.other` is still printed by kloggy, with INFO by default.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         rexport = get_logger('my.reddit.rexport')
         other = get_logger('my.other')
-        rexport.info('before takeover')  # LOGS: KLOGGING INFO my.reddit.rexport: before takeover
+        rexport.info('before takeover')  # LOGS: KLOGGY INFO my.reddit.rexport: before takeover
         # the app takes over my.reddit, prints bare messages
         logging.getLogger('my.reddit').addHandler(logging.StreamHandler())
         rexport.info('rexport info')  # my.reddit is configured, so stdlib's levels apply there
         rexport.warning('rexport warning')  # LOGS: rexport warning
-        other.info('other info')  # LOGS: KLOGGING INFO my.other: other info
-        other.warning('other warning')  # LOGS: KLOGGING WARNING my.other: other warning
+        other.info('other info')  # LOGS: KLOGGY INFO my.other: other info
+        other.warning('other warning')  # LOGS: KLOGGY WARNING my.other: other warning
 
     check_logs(test)
 
@@ -241,7 +241,7 @@ def test_l3_concurrent() -> None:
         import logging
         import threading
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         get_logger('my.foo')
         logger = logging.getLogger('my.plain')
@@ -261,13 +261,13 @@ def test_l3_concurrent() -> None:
 
 def test_l2_level_changed_since() -> None:
     """
-    If someone sets the package logger's level after klogging set up, it applies.
+    If someone sets the package logger's level after kloggy set up, it applies.
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         logging.getLogger('my').setLevel(logging.DEBUG)
@@ -287,16 +287,16 @@ def test_l2_explicit_level() -> None:
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logging.getLogger('my.foo').setLevel(logging.DEBUG)
         logging.getLogger('my').setLevel(logging.WARNING)
         foo = get_logger('my.foo')
         bar = get_logger('my.bar')
         assert len(logging.getLogger('my').handlers) == 1
-        foo.debug('foo debug')  # LOGS: KLOGGING DEBUG my.foo: foo debug
+        foo.debug('foo debug')  # LOGS: KLOGGY DEBUG my.foo: foo debug
         bar.info('bar info')  # WARNING is set for the whole package
-        bar.warning('bar warning')  # LOGS: KLOGGING WARNING my.bar: bar warning
+        bar.warning('bar warning')  # LOGS: KLOGGY WARNING my.bar: bar warning
 
     check_logs(test)
 
@@ -315,31 +315,31 @@ def test_l2_app_logger_class() -> None:
                 return 'app method'
 
         logging.setLoggerClass(AppLogger)
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         assert isinstance(logger, AppLogger)
         print(isinstance(logger, AppLogger), logger.app_method(), file=sys.stderr)  # LOGS: True app method
-        logger.info('some info')  # LOGS: KLOGGING INFO my.foo: some info
+        logger.info('some info')  # LOGS: KLOGGY INFO my.foo: some info
 
     check_logs(test)
 
 
 def test_l2_plain_logger() -> None:
     """
-    Plain `logging.getLogger()` loggers in the package keep stdlib's levels, so no INFO by default: they never asked klogging for anything.
-    Their records still reach klogging's handler on the package logger, so klogging prints them while logging isn't configured (Z1).
+    Plain `logging.getLogger()` loggers in the package keep stdlib's levels, so no INFO by default: they never asked kloggy for anything.
+    Their records still reach kloggy's handler on the package logger, so kloggy prints them while logging isn't configured (Z1).
     """
 
     def test() -> None:
         import logging
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         get_logger('my.foo')
         logger = logging.getLogger('my.plain')
         logger.info('some info')  # a plain logger keeps stdlib's levels
-        logger.warning('some warning')  # LOGS: KLOGGING WARNING my.plain: some warning
+        logger.warning('some warning')  # LOGS: KLOGGY WARNING my.plain: some warning
         logging.basicConfig(format='APP %(levelname)s %(name)s: %(message)s')
         logger.info('info after configuration')  # same
         logger.warning('warning after configuration')  # LOGS: APP WARNING my.plain: warning after configuration
@@ -349,7 +349,7 @@ def test_l2_plain_logger() -> None:
 
 def test_l3_created_before_configured() -> None:
     """
-    Records created at klogging's INFO just before the app configured logging, but reaching the handlers after, are dropped.
+    Records created at kloggy's INFO just before the app configured logging, but reaching the handlers after, are dropped.
     Warnings created at the same time still reach the app's handlers.
     The app's filter on the module logger holds them until the app has configured logging.
     """
@@ -358,7 +358,7 @@ def test_l3_created_before_configured() -> None:
         import logging
         import threading
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         created = threading.Barrier(9)  # 8 threads + main
@@ -406,7 +406,7 @@ def test_l3_effective_level() -> None:
         import logging
         import sys
 
-        from klogging import get_logger
+        from kloggy import get_logger
 
         logger = get_logger('my.foo')
         level = logger.getEffectiveLevel()
