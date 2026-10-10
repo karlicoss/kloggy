@@ -19,6 +19,8 @@ format:
   gfm:
     # keep one sentence per line, as in the sources, so diffs are readable
     wrap: preserve
+    # otherwise pandoc doesn't align table columns wider than its default 72
+    columns: 200
   # ignored, for local preview
   html:
     grid:

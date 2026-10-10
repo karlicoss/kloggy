@@ -51,6 +51,9 @@ Avoid `get_logger(__package__)`:
 - records lose their module name (`pkg.sub` instead of `pkg.sub.module`), so individual modules can't be configured
 - it's `''` under `python -m` (i.e. the root logger) and `None` in a script run directly
 
+Outside `except` blocks, log exceptions with `exc_info=e`, e.g. `logger.error('while parsing %s', path, exc_info=e)`, so the traceback is kept with any logging setup
+  (kloggy's own output adds it for `logger.error(e)` anyway, [X1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#x1)).
+
 Avoid logging via the root logger (`logging.warning(...)` etc.), use the module logger instead (ruff rule [`LOG015`](https://docs.astral.sh/ruff/rules/root-logger-call/) catches these).
 Such calls implicitly call `basicConfig()`.
 kloggy copes with that ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3)), but an app's own `basicConfig(...)` called later is then silently ignored.

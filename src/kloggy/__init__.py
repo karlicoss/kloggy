@@ -6,6 +6,7 @@ Only implements approved requirements, see doc/requirements.md.
 
 from __future__ import annotations
 
+import copy
 import functools
 import logging
 import os
@@ -70,6 +71,29 @@ def _drop(record: logging.LogRecord) -> None:
     Logger.callHandlers() only passes a record to a handler if record.levelno >= handler.level, and handler levels are never below NOTSET.
     """
     record.levelno = logging.NOTSET - 1
+
+
+class _Formatter(colorlog.ColoredFormatter):
+    """
+    colorlog's formatter, but an exception logged as the message at ERROR and above shows its traceback (X1).
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        exc = record.msg
+        # (None, None, None) is what e.g. logger.exception(e) outside an except block gives
+        no_exc_info = record.exc_info is None or record.exc_info == (None, None, None)
+        if (
+            isinstance(exc, BaseException)
+            and exc.__traceback__ is not None
+            and record.levelno >= logging.ERROR
+            and no_exc_info
+        ):
+            # on a copy: stdlib caches the formatted traceback on the record, so other handlers would see it
+            # the copy is cheap, ~1% of formatting the traceback
+            record = copy.copy(record)
+            record.exc_info = (type(exc), exc, exc.__traceback__)
+            record.exc_text = None
+        return super().format(record)
 
 
 class _FallbackHandler(logging.StreamHandler[TextIO]):
@@ -272,7 +296,7 @@ def get_logger(name: str) -> logging.Logger:
         handler = _FallbackHandler()
         # F1, with a private override so tests can tell kloggy's output apart without adding setup code to the examples
         fmt = os.environ.get('_KLOGGY_TEST_FORMAT', _FORMAT)
-        handler.setFormatter(colorlog.ColoredFormatter(fmt, stream=handler.stream))
+        handler.setFormatter(_Formatter(fmt, stream=handler.stream))
         package.addHandler(handler)
 
     # same object, but with INFO by default while logging isn't configured (L2, L3)

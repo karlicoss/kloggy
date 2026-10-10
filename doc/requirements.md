@@ -18,6 +18,8 @@
 - [F: output format](#f-output-format)
   - [F1: Level, time, logger and source location](#f1)
   - [F2: Coloured by level on a terminal](#f2)
+- [X: exceptions](#x-exceptions)
+  - [X1: Exceptions logged as the message show their traceback](#x1)
 
 kloggy is developed requirements-first: requirements are agreed on before they are implemented, and link to the tests validating them.
 Implementation: [`src/kloggy/__init__.py`](../src/kloggy/__init__.py), tests: [`src/kloggy/tests/`](../src/kloggy/tests/).
@@ -68,8 +70,11 @@ It only sets levels the user explicitly asks for via `KLOGGY_LEVEL` ([V1](#v1)).
 Levels set explicitly (e.g. by the app, on the logger itself or an ancestor below root) still apply
 (tests: [`l2_explicit_level`](../src/kloggy/tests/test_library.py#L281 "test_l2_explicit_level"), [`l2_level_changed_since`](../src/kloggy/tests/test_library.py#L262 "test_l2_level_changed_since")).
 
-Plain `logging.getLogger()` loggers in the package keep stdlib's levels
-(tests: [`l2_plain_logger`](../src/kloggy/tests/test_library.py#L328 "test_l2_plain_logger"), [`l3_configured_after_plain_logger`](../src/kloggy/tests/test_library.py#L114 "test_l3_configured_after_plain_logger"), [`l3_configured_after_on_module_logger_plain_logger`](../src/kloggy/tests/test_library.py#L164 "test_l3_configured_after_on_module_logger_plain_logger")).
+In a package where some modules use `get_logger()`, modules still using plain `logging.getLogger()` keep stdlib's levels
+(tests: [`l3_configured_after_plain_logger`](../src/kloggy/tests/test_library.py#L114 "test_l3_configured_after_plain_logger"), [`l3_configured_after_on_module_logger_plain_logger`](../src/kloggy/tests/test_library.py#L164 "test_l3_configured_after_on_module_logger_plain_logger")).
+Their records are still printed by kloggy while logging isn't configured, so a package can migrate one module at a time
+(test: [`l2_plain_logger`](../src/kloggy/tests/test_library.py#L328 "test_l2_plain_logger")).
+That only changes how their records look, never which ones are shown.
 
 **Mechanism:** `get_logger()` returns the same object as `logging.getLogger()`, switched to a kloggy subclass of `logging.Logger`.
 If the app installed its own logger class (`logging.setLoggerClass()`), kloggy uses a subclass of both, so it keeps its behaviour
@@ -289,3 +294,75 @@ On a terminal, the prefix in brackets is coloured by level (test: [`f2_tty`](../
 
 colorlog is a hard dependency, so output looks the same everywhere.
 It's small, has no dependencies except `colorama` on Windows, and is actively maintained (several releases in 2026).
+
+## X: exceptions
+
+<a id="x1"></a>
+
+### X1: Exceptions logged as the message show their traceback
+
+E.g. errors collected while processing, to keep going and report them at the end:
+
+``` python
+errors = []
+for path in paths:
+    try:
+        parse(path)
+    except ValueError as e:
+        errors.append(e)
+for e in errors:
+    logger.error(e)
+```
+
+Plain stdlib formats the message as `str(e)`, so it prints just `malformed file: b.json`:
+not even the exception type, let alone where it was raised.
+That's especially bad for terse exceptions, e.g. a `KeyError` prints just `'id'`.
+The traceback is still there, in `e.__traceback__`, but stdlib only shows it if the call passes `exc_info`.
+
+kloggy's output includes it:
+
+``` text
+[ERROR   2026-10-10 21:36:28,639 pkg.mod mod.py:22  ] malformed file: b.json
+Traceback (most recent call last):
+  File "mod.py", line 14, in collect
+    parse(path)
+  File "mod.py", line 7, in parse
+    raise ValueError(f'malformed file: {path}')
+ValueError: malformed file: b.json
+```
+
+In kloggy's own output, an exception logged as the message at ERROR and above shows its traceback, even outside an `except` block,
+e.g. errors collected as values and logged later (test: [`x1_error`](../src/kloggy/tests/test_exceptions.py#L25 "test_x1_error")).
+That includes `logger.exception(e)` outside an `except` block, which stdlib would print with `NoneType: None` instead
+(test: [`x1_exception_outside_handler`](../src/kloggy/tests/test_exceptions.py#L41 "test_x1_exception_outside_handler")).
+
+Below ERROR, it's just the message: e.g. warnings are often expected failures, like a skipped file (test: [`x1_warning`](../src/kloggy/tests/test_exceptions.py#L57 "test_x1_warning")).
+An explicit `exc_info` always wins, also `exc_info=False` asking for no traceback (test: [`x1_explicit_exc_info`](../src/kloggy/tests/test_exceptions.py#L71 "test_x1_explicit_exc_info")).
+
+The record itself isn't changed, only kloggy's output: once the app configures logging, its handlers get the usual stdlib behaviour
+(test: [`x1_app_configured`](../src/kloggy/tests/test_exceptions.py#L92 "test_x1_app_configured")).
+
+**Recommendation:** outside `except` blocks, pass the exception explicitly, whether you use kloggy or not,
+e.g. `logger.error('while parsing %s', path, exc_info=e)`, which keeps the traceback with any logging setup.
+ruff's `LOG` rules catch most mistakes here, but only on objects ruff knows are loggers:
+e.g. `logger = get_logger(__name__)` in the same module works,
+but a logger imported from another module (`from .common import logger`) has to be listed in ruff's
+[`lint.logger-objects`](https://docs.astral.sh/ruff/settings/#lint_logger-objects) setting, otherwise its calls are silently skipped.
+
+| Call, outside an `except` block  | ruff                                                                                                                |
+|----------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `logger.exception(e)`            | [`LOG004`](https://docs.astral.sh/ruff/rules/log-exception-outside-except-handler/): stdlib prints `NoneType: None` |
+| `logger.error(e, exc_info=True)` | [`LOG014`](https://docs.astral.sh/ruff/rules/exc-info-outside-except-handler/): same                                |
+| `logger.error(e, exc_info=e)`    | fine                                                                                                                |
+| `logger.error(e)`                | not caught: the traceback is silently lost, hence X1                                                                |
+
+**Considered alternatives:**
+
+- adding the traceback to the record itself, for all handlers:
+  then the app's handlers would get tracebacks the code never asked for, unlike plain stdlib ([L1](#l1))
+- a lint check instead, so that call sites always pass `exc_info=e`:
+  ruff can't tell `e` is an exception outside an `except` block, that needs type information.
+  ty has no plugin system, and a mypy plugin works, but every project would have to enable it in its mypy configuration.
+
+Worth reconsidering once static checks can use type information, e.g. if ruff gets type-aware rules on top of ty:
+then a lint rule could flag `logger.error(e)` as well, and fixing call sites might be enough.
