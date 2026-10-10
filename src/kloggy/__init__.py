@@ -6,9 +6,11 @@ Only implements approved requirements, see doc/requirements.md.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import sys
+import warnings
 from typing import TextIO
 
 
@@ -168,13 +170,98 @@ def _has_stepped_aside(logger: logging.Logger) -> bool:
     return False
 
 
+# like RUST_LOG's 'off'
+_OFF = logging.CRITICAL + 1
+
+
+def _parse_level_spec(spec: str) -> dict[str, int]:
+    """
+    Logger name -> level from a KLOGGY_LEVEL spec, e.g. 'warning,pkg.sub=debug', with '' for the default (V1).
+    Like RUST_LOG, invalid entries are ignored with a warning, and a later entry for the same logger wins.
+    """
+    level_names = {**logging.getLevelNamesMapping(), 'OFF': _OFF}
+    levels: dict[str, int] = {}
+    for entry in spec.split(','):
+        entry = entry.strip()
+        if entry == '':
+            # e.g. a trailing comma
+            continue
+        name, eq, level_name = (part.strip() for part in entry.rpartition('='))
+        if '=' in name or (eq != '' and name == ''):
+            warnings.warn(f'KLOGGY_LEVEL: ignoring malformed entry {entry!r}', stacklevel=1)
+            continue
+        level = level_names.get(level_name.upper())
+        if level is None:
+            warnings.warn(f'KLOGGY_LEVEL: ignoring {entry!r}: unknown level {level_name!r}', stacklevel=1)
+            continue
+        levels[name] = level
+    return levels
+
+
+@functools.cache
+def _level_spec() -> dict[str, int]:
+    """
+    KLOGGY_LEVEL, read once, on the first get_logger() call (V1).
+    """
+    return _parse_level_spec(os.environ.get('KLOGGY_LEVEL', ''))
+
+
+# boolean values as in systemd (L5)
+_TRUE = {'1', 'true', 'yes', 'on'}
+_FALSE = {'', '0', 'false', 'no', 'off'}
+
+
+@functools.cache
+def _disabled() -> bool:
+    """
+    KLOGGY_DISABLE, read once, on the first get_logger() call (L5).
+    """
+    value = os.environ.get('KLOGGY_DISABLE', '')
+    if value.strip().lower() in _TRUE:
+        return True
+    if value.strip().lower() not in _FALSE:
+        warnings.warn(f'KLOGGY_DISABLE: ignoring unknown value {value!r}, expected e.g. 1 or 0', stacklevel=1)
+    return False
+
+
+# top-level packages KLOGGY_LEVEL was applied to (V1)
+_levels_applied: set[str] = set()
+
+
+def _apply_levels(package: str) -> None:
+    """
+    Sets the levels the user asked for via KLOGGY_LEVEL for a package using kloggy, once (V1).
+    """
+    if package in _levels_applied:
+        return
+    levels = _level_spec()
+    _levels_applied.add(package)
+    default = levels.get('')
+    to_set = {name: level for name, level in levels.items() if name == package or name.startswith(f'{package}.')}
+    if default is not None:
+        # an entry for the package itself beats the default
+        to_set.setdefault(package, default)
+    for name, level in to_set.items():
+        logger = logging.getLogger(name)
+        if logger.level == logging.NOTSET:
+            # otherwise someone, e.g. the app, set it explicitly, and the app always wins
+            logger.setLevel(level)
+
+
 def get_logger(name: str) -> logging.Logger:
+    if _disabled():
+        # the user opted out of kloggy completely (L5)
+        return logging.getLogger(name)
+
     logger = logging.getLogger(name)
+    package_name = name.partition('.')[0]
+    # the user asked for these explicitly, so even if the app configured logging
+    _apply_levels(package_name)
     if _has_stepped_aside(logger):
         # don't touch logging state if the app already configured it (L1)
         return logger
 
-    package = logging.getLogger(name.partition('.')[0])
+    package = logging.getLogger(package_name)
     already_set_up = any(isinstance(h, _FallbackHandler) for h in package.handlers)
     if not already_set_up:
         handler = _FallbackHandler()

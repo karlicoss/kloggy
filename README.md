@@ -36,6 +36,14 @@ logging.getLogger('pkg').setLevel(logging.DEBUG)  # all of pkg.*
 logging.getLogger('pkg.module').setLevel(logging.WARNING)  # just this module
 ```
 
+Users can set levels for packages using kloggy via the `KLOGGY_LEVEL` environment variable,
+  e.g. `KLOGGY_LEVEL=warning,pkg.sub=debug,pkg.noisy=off` ([V1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#v1)).
+The syntax follows Rust's `RUST_LOG`: `off` silences a logger completely, and the most specific entry wins.
+These apply even if the app configures logging.
+
+If kloggy causes problems, `KLOGGY_DISABLE=1` turns it off completely, so logging behaves exactly as plain stdlib,
+  without changing any code ([L5](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l5)).
+
 Avoid `get_logger(__package__)`:
 - records lose their module name (`pkg.sub` instead of `pkg.sub.module`), so individual modules can't be configured
 - it's `''` under `python -m` (i.e. the root logger) and `None` in a script run directly

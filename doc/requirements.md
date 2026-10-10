@@ -1,6 +1,21 @@
 # kloggy requirements
 
 
+- [Definitions](#definitions)
+  - [Configured](#configured)
+- [L: library-side API](#l-library-side-api)
+  - [L1: Existing configuration is left untouched](#l1)
+  - [L2: INFO by default](#l2)
+  - [L3: The app's levels apply once it configures logging](#l3)
+  - [L4: Named `get_logger`](#l4)
+  - [L5: `KLOGGY_DISABLE` opts out of kloggy completely](#l5)
+- [Z: zero-config output](#z-zero-config-output)
+  - [Z1: No bare messages](#z1)
+  - [Z2: kloggy steps aside for good once logging is configured](#z2)
+  - [Z3: Default `basicConfig()` handler doesn't count as configured](#z3)
+- [V: verbosity](#v-verbosity)
+  - [V1: `KLOGGY_LEVEL` sets levels for packages using kloggy](#v1)
+
 kloggy is developed requirements-first: requirements are agreed on before they are implemented, and link to the tests validating them.
 Implementation: [`src/kloggy/__init__.py`](../src/kloggy/__init__.py), tests: [`src/kloggy/tests/`](../src/kloggy/tests/).
 
@@ -20,10 +35,13 @@ Note that `basicConfig()` uses a narrower check (`root.handlers` is non-empty).
 
 ## L: library-side API
 
-### <a id="l1"></a>L1: Existing configuration is left untouched
+<a id="l1"></a>
+
+### L1: Existing configuration is left untouched
 
 If logging is already [configured](#configured) for a logger when `get_logger()` is called for it, kloggy doesn't touch logging state:
 no handlers added, no levels set, and the logger's class isn't switched ([L2](#l2)).
+The only exception are levels the user explicitly asks for via `KLOGGY_LEVEL` ([V1](#v1)).
 Output is then exactly what it would be without kloggy, for good (test: [`l1_configured_before_untouched`](../src/kloggy/tests/test_library.py#L13 "test_l1_configured_before_untouched")).
 
 E.g. after `basicConfig(level=ERROR)`, the app only gets errors from `pkg.*`, in its own format.
@@ -32,15 +50,17 @@ E.g. after `basicConfig(level=ERROR)`, the app only gets errors from `pkg.*`, in
 
 **Related:**
 
-- levels the user asks for, e.g. via an environment variable, are a separate question, not decided yet
 - logging configured *after* kloggy set up: see [L3](#l3), [Z2](#z2)
 
-### <a id="l2"></a>L2: INFO by default
+<a id="l2"></a>
+
+### L2: INFO by default
 
 Loggers returned by `get_logger()` show INFO while logging isn't configured, rather than stdlib's default WARNING (test: [`l2_info_by_default`](../src/kloggy/tests/test_library.py#L73 "test_l2_info_by_default")).
 This is a deliberate, opinionated choice: INFO gives a sense of progress (e.g. `processing [3/100] ...`) without any setup.
 
-kloggy never sets any levels itself: the INFO default isn't stored on any logger, so there's nothing the app could mistake for its own.
+kloggy never sets any levels on its own: the INFO default isn't stored on any logger, so there's nothing the app could mistake for its own.
+It only sets levels the user explicitly asks for via `KLOGGY_LEVEL` ([V1](#v1)).
 
 Levels set explicitly (e.g. by the app, on the logger itself or an ancestor below root) still apply
 (tests: [`l2_explicit_level`](../src/kloggy/tests/test_library.py#L281 "test_l2_explicit_level"), [`l2_level_changed_since`](../src/kloggy/tests/test_library.py#L262 "test_l2_level_changed_since")).
@@ -54,7 +74,9 @@ If the app installed its own logger class (`logging.setLoggerClass()`), kloggy u
 kloggy doesn't call `logging.setLoggerClass()` itself:
 that would affect every logger created afterwards, including other libraries', and the app may need it for its own class.
 
-### <a id="l3"></a>L3: The app's levels apply once it configures logging
+<a id="l3"></a>
+
+### L3: The app's levels apply once it configures logging
 
 Once the app configures logging, its levels apply straight away, e.g. after `basicConfig(level=ERROR)` in `main()` after imports
 (tests: [`l3_configured_after`](../src/kloggy/tests/test_library.py#L91 "test_l3_configured_after"), [`l3_configured_after_on_module_logger`](../src/kloggy/tests/test_library.py#L138 "test_l3_configured_after_on_module_logger"), [`l3_effective_level`](../src/kloggy/tests/test_library.py#L399 "test_l3_effective_level")).
@@ -82,7 +104,9 @@ so the app never gets records below its levels (tests: [`l3_created_before_confi
 - a special level comparing as INFO until logging is configured, and as the app's level after:
   leaks via `getEffectiveLevel()`, where it compares inconsistently (equal to INFO, yet not above DEBUG)
 
-### <a id="l4"></a>L4: Named `get_logger`
+<a id="l4"></a>
+
+### L4: Named `get_logger`
 
 The function is named `get_logger`, not `getLogger`:
 
@@ -90,9 +114,31 @@ The function is named `get_logger`, not `getLogger`:
   so the call site should make it obvious it's kloggy's, unlike `from kloggy import getLogger` vs `from logging import getLogger`
 - snake_case is PEP 8 and what newer libraries use (e.g. `structlog.get_logger`); stdlib's camelCase is legacy
 
+<a id="l5"></a>
+
+### L5: `KLOGGY_DISABLE` opts out of kloggy completely
+
+With `KLOGGY_DISABLE=1`, `get_logger()` returns plain `logging.getLogger()` loggers without touching anything:
+no handler, no class switch, and `KLOGGY_LEVEL` is ignored (test: [`l5_disabled`](../src/kloggy/tests/test_disable.py#L10 "test_l5_disabled")).
+So logging behaves exactly as plain stdlib, e.g. if kloggy causes problems, without changing any code.
+
+Values are the usual boolean words, as in systemd: `1`, `true`, `yes`, `on` disable kloggy, `0`, `false`, `no`, `off` don't, case-insensitive.
+Empty means not set (test: [`l5_values`](../src/kloggy/tests/test_disable.py#L50 "test_l5_values")).
+Anything else is ignored with a warning naming `KLOGGY_DISABLE` (test: [`l5_invalid`](../src/kloggy/tests/test_disable.py#L69 "test_l5_invalid")).
+It's read once, on the first `get_logger()` call.
+
+**Rejected alternatives:**
+
+- an empty `KLOGGY_LEVEL`: variables often end up empty by accident (e.g. wrapper scripts passing through an unset variable),
+  and empty usually means unset
+- `KLOGGY_LEVEL=off`: `off` means silence, while opting out still prints warnings via stdlib's `logging.lastResort`
+- any non-empty value disables, like many `PYTHON*` variables: then `KLOGGY_DISABLE=0` would disable kloggy too
+
 ## Z: zero-config output
 
-### <a id="z1"></a>Z1: No bare messages
+<a id="z1"></a>
+
+### Z1: No bare messages
 
 If logging isn't [configured](#configured), records from kloggy loggers are never printed as a bare message:
 the output includes at least the level and the logger name (test: [`z1_not_bare`](../src/kloggy/tests/test_zero_config.py#L27 "test_z1_not_bare")).
@@ -108,7 +154,9 @@ Even `basicConfig()`'s default `logging.BASIC_FORMAT` (`%(levelname)s:%(name)s:%
 - the specific format is a separate concern, not decided yet
 - which levels are shown when nothing is configured: see [L2](#l2)
 
-### <a id="z2"></a>Z2: kloggy steps aside for good once logging is configured
+<a id="z2"></a>
+
+### Z2: kloggy steps aside for good once logging is configured
 
 Once logging is [configured](#configured) for a logger, kloggy steps aside for that logger for good:
 its handler leaves the logger's records to the app's handlers, and its levels are stdlib's ([L3](#l3)).
@@ -133,7 +181,9 @@ If the app adds and then removes handlers without logging anything in between, k
   The motivation was pytest `caplog`, but pytest keeps its own handlers on root for the whole session,
   so removing caplog's handler doesn't leave logging unconfigured anyway.
 
-### <a id="z3"></a>Z3: Default `basicConfig()` handler doesn't count as configured
+<a id="z3"></a>
+
+### Z3: Default `basicConfig()` handler doesn't count as configured
 
 Root having only the handler a default `basicConfig()` creates doesn't count as [configured](#configured)
 (tests: [`z3_stray_call_before`](../src/kloggy/tests/test_zero_config.py#L242 "test_z3_stray_call_before"), [`z3_stray_call_after`](../src/kloggy/tests/test_zero_config.py#L261 "test_z3_stray_call_after")).
@@ -164,3 +214,42 @@ So kloggy doesn't touch root's handler, and other loggers' records are unaffecte
 - `propagate = False` on the package logger while root only has the default handler:
   interferes with the "configured" walk, which stops at `propagate = False`, so kloggy would have to track which flag it set itself
 - a filter on that default handler dropping records kloggy marked as printed: works, but touches root's handler
+
+## V: verbosity
+
+<a id="v1"></a>
+
+### V1: `KLOGGY_LEVEL` sets levels for packages using kloggy
+
+The `KLOGGY_LEVEL` environment variable sets levels for packages using kloggy, i.e. where some module calls `get_logger()`, e.g. `KLOGGY_LEVEL=warning,pkg.sub=debug`.
+A level without a logger name is the default for each such package (test: [`v1_default`](../src/kloggy/tests/test_level_control.py#L10 "test_v1_default")).
+Other entries set the level of a specific logger in it, hierarchically, and the most specific one wins regardless of order
+(test: [`v1_entries`](../src/kloggy/tests/test_level_control.py#L28 "test_v1_entries")).
+
+Packages which don't use kloggy aren't affected, even if they're named in the spec (test: [`v1_other_packages`](../src/kloggy/tests/test_level_control.py#L47 "test_v1_other_packages")):
+kloggy only changes code that opted into it.
+
+The syntax and precedence follow Rust's `RUST_LOG` (as in [env_logger](https://docs.rs/env_logger)), so they're familiar:
+
+- level names are case-insensitive, `warn` works too, and `off` silences a logger completely (test: [`v1_level_names`](../src/kloggy/tests/test_level_control.py#L71 "test_v1_level_names"))
+- a later entry for the same logger wins, and empty entries (e.g. a trailing comma) are skipped (test: [`v1_later_wins`](../src/kloggy/tests/test_level_control.py#L92 "test_v1_later_wins"))
+- invalid entries, e.g. an unknown level, are ignored with a warning naming `KLOGGY_LEVEL`, and the rest still applies
+  (test: [`v1_invalid`](../src/kloggy/tests/test_level_control.py#L124 "test_v1_invalid")).
+  The spec is read once, on the first `get_logger()` call, so it doesn't warn for every package.
+
+Differences from `RUST_LOG`:
+
+- entries match by dotted name: `pkg` matches `pkg.sub`, but not `pkgfoo` (`RUST_LOG` matches by string prefix)
+- a level without a logger name only applies to packages using kloggy, and loggers without a matching entry keep their levels
+  (`RUST_LOG` applies it to everything, and switches off everything without a matching entry)
+- Python's level names, so no `trace`
+
+These are levels the user explicitly asks for, so unlike kloggy's INFO default ([L2](#l2)) they're real logger levels.
+So they apply even if the app configures logging, before or after the package calls `get_logger()` (test: [`v1_app_configured`](../src/kloggy/tests/test_level_control.py#L151 "test_v1_app_configured")).
+But the app always wins: levels already set explicitly aren't overridden (test: [`v1_app_set_level_before`](../src/kloggy/tests/test_level_control.py#L197 "test_v1_app_set_level_before")),
+and since they're set when a package first calls `get_logger()`, the app's own `setLevel()` after that wins too (test: [`v1_app_set_level_later`](../src/kloggy/tests/test_level_control.py#L174 "test_v1_app_set_level_later")).
+
+**Rejected alternatives:**
+
+- `LOGGING_LEVEL`: too common a name for one library to claim
+- applying entries to any logger, including packages not using kloggy: it would change code that never opted into kloggy

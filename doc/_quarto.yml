@@ -6,6 +6,10 @@ project:
 # otherwise pandoc turns quotes into typographic ones, so the generated markdown diverges from the sources
 from: markdown-smart
 
+# table of contents, down to individual requirements
+toc: true
+toc-depth: 4
+
 # keeps explicit heading ids like {#z3} in the GitHub markdown output
 filters:
   - gfm_anchors.lua

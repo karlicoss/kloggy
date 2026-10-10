@@ -39,7 +39,10 @@ def run(test: Callable[..., None], *, test_format: bool = True, **kwargs: object
     )
     # make sure user's environment doesn't interfere
     assert '_KLOGGY_TEST_FORMAT' not in os.environ
-    env = {k: v for k, v in os.environ.items() if not k.startswith('LOGGING_')}
+    env = dict(os.environ)
+    # e.g. the user's own KLOGGY_LEVEL would change what tests print
+    env.pop('KLOGGY_LEVEL', None)
+    env.pop('KLOGGY_DISABLE', None)
     if test_format:
         env['_KLOGGY_TEST_FORMAT'] = 'KLOGGY %(levelname)s %(name)s: %(message)s'
     res = subprocess.run(
