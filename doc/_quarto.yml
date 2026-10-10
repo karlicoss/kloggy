@@ -1,0 +1,25 @@
+project:
+  title: "klogging docs"
+  render:
+    - "*.qmd"
+
+# otherwise pandoc turns quotes into typographic ones, so the generated markdown diverges from the sources
+from: markdown-smart
+
+# keeps explicit heading ids like {#z3} in the GitHub markdown output
+filters:
+  - gfm_anchors.lua
+
+format:
+  # committed, so the docs are readable on GitHub
+  gfm:
+    # keep one sentence per line, as in the sources, so diffs are readable
+    wrap: preserve
+  # ignored, for local preview
+  html:
+    grid:
+      # default is 800px, too narrow for long lines with inline code
+      body-width: 1200px
+
+# Deliberately not using freeze: the docs link to test line numbers, which change whenever the tests change.
+# Rendering is fast anyway.

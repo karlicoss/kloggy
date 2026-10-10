@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""
+Sadly quarto doesn't have builtin reference validation?
+See https://github.com/quarto-dev/quarto-cli/discussions/13259
+"""
+
+# TODO validate file links as well?
+import re
+import sys
+from pathlib import Path
+
+
+def validate(path: Path) -> list[str]:
+    defs = {}
+    refs = []
+    relative_links = []
+
+    for i, line in enumerate(path.read_text().splitlines()):
+        lineno = i + 1
+        ## cross-reference definition, e.g. `### Some heading {#some-id}`
+        for m in re.finditer(r'\{(#[^}\s]+)\}', line):
+            xx = m.group(1)
+            assert xx not in defs, (xx, defs)
+            defs[xx] = (lineno, line)
+        ## cross-reference usage, e.g. `[some heading](#some-id)`
+        for m in re.finditer(r'\]\((#[^)\s]+)\)', line):
+            refs.append((m.group(1), lineno, line))
+        for m in re.finditer(r'\]\(([^#)\s][^)\s]*)\)', line):
+            url = m.group(1)
+            if not url.startswith(('http://', 'https://')):
+                relative_links.append((url, lineno, line))
+
+    errors = []
+    for ref, lineno, line in refs:
+        if ref in defs:
+            continue
+        print(f"{path}:{lineno}: reference {ref} not found\n  {line}. Known: {defs}", file=sys.stderr)
+        errors.append(ref)
+
+    for url, lineno, line in relative_links:
+        file_url = url.partition('#')[0]
+        relpath = path.parent / file_url
+        if not relpath.exists():
+            print(f"{path}:{lineno}: link {url} not found\n  {line}", file=sys.stderr)
+            errors.append(url)
+
+    return errors
+
+
+if len(sys.argv) == 1:
+    paths = sorted(Path(__file__).parent.rglob('*.qmd'))
+else:
+    paths = [Path(arg) for arg in sys.argv[1:]]
+
+errors = []
+for path in paths:
+    errors.extend(validate(path))
+assert len(errors) == 0, errors
