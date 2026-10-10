@@ -15,6 +15,9 @@
   - [Z3: Default `basicConfig()` handler doesn't count as configured](#z3)
 - [V: verbosity](#v-verbosity)
   - [V1: `KLOGGY_LEVEL` sets levels for packages using kloggy](#v1)
+- [F: output format](#f-output-format)
+  - [F1: Level, time, logger and source location](#f1)
+  - [F2: Coloured by level on a terminal](#f2)
 
 kloggy is developed requirements-first: requirements are agreed on before they are implemented, and link to the tests validating them.
 Implementation: [`src/kloggy/__init__.py`](../src/kloggy/__init__.py), tests: [`src/kloggy/tests/`](../src/kloggy/tests/).
@@ -151,7 +154,7 @@ Even `basicConfig()`'s default `logging.BASIC_FORMAT` (`%(levelname)s:%(name)s:%
 
 **Related:**
 
-- the specific format is a separate concern, not decided yet
+- the specific format: see [F1](#f1)
 - which levels are shown when nothing is configured: see [L2](#l2)
 
 <a id="z2"></a>
@@ -253,3 +256,36 @@ and since they're set when a package first calls `get_logger()`, the app's own `
 
 - `LOGGING_LEVEL`: too common a name for one library to claim
 - applying entries to any logger, including packages not using kloggy: it would change code that never opted into kloggy
+
+## F: output format
+
+<a id="f1"></a>
+
+### F1: Level, time, logger and source location
+
+kloggy's output shows the level, time, logger name and source location of each record (test: [`f1_format`](../src/kloggy/tests/test_output_format.py#L13 "test_f1_format")):
+
+``` text
+[INFO    2026-10-10 12:00:00,123 pkg.sub.mod mod.py:42  ] some message
+```
+
+i.e. `[%(levelname)-7s %(asctime)s %(name)s %(filename)s:%(lineno)-4d] %(message)s`:
+
+- the level is padded to 7 characters, so DEBUG, INFO, WARNING and ERROR line up.
+  The rare CRITICAL is one character wider, rather than truncated.
+- the timestamp includes milliseconds: only 4 characters, and handy as a rough profiler
+- both the logger name and the file: mostly redundant, but not when a record is logged via another module's logger,
+  e.g. cachew logs through the decorated module's logger, and the file still shows where it came from (test: [`f1_file`](../src/kloggy/tests/test_output_format.py#L32 "test_f1_file"))
+- the line number is padded to 4 characters, so messages mostly line up
+
+<a id="f2"></a>
+
+### F2: Coloured by level on a terminal
+
+On a terminal, the prefix in brackets is coloured by level (test: [`f2_tty`](../src/kloggy/tests/test_output_format.py#L57 "test_f2_tty")).
+[colorlog](https://github.com/borntyping/python-colorlog) does the colouring, and decides when:
+`FORCE_COLOR` colours even if the stream isn't a terminal (test: [`f2_force_color`](../src/kloggy/tests/test_output_format.py#L91 "test_f2_force_color")),
+`NO_COLOR` disables colour, and otherwise only a terminal gets colour, e.g. not output redirected to a file (test: [`f1_format`](../src/kloggy/tests/test_output_format.py#L13 "test_f1_format")).
+
+colorlog is a hard dependency, so output looks the same everywhere.
+It's small, has no dependencies except `colorama` on Windows, and is actively maintained (several releases in 2026).

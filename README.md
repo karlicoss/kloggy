@@ -41,6 +41,9 @@ Users can set levels for packages using kloggy via the `KLOGGY_LEVEL` environmen
 The syntax follows Rust's `RUST_LOG`: `off` silences a logger completely, and the most specific entry wins.
 These apply even if the app configures logging.
 
+Output is coloured by level on a terminal, via colorlog, which also honours `NO_COLOR` and `FORCE_COLOR`
+  ([F2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#f2)).
+
 If kloggy causes problems, `KLOGGY_DISABLE=1` turns it off completely, so logging behaves exactly as plain stdlib,
   without changing any code ([L5](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l5)).
 

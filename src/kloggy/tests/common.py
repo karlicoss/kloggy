@@ -43,6 +43,8 @@ def run(test: Callable[..., None], *, test_format: bool = True, **kwargs: object
     # e.g. the user's own KLOGGY_LEVEL would change what tests print
     env.pop('KLOGGY_LEVEL', None)
     env.pop('KLOGGY_DISABLE', None)
+    # would add colour codes regardless of the stream (F2)
+    env.pop('FORCE_COLOR', None)
     if test_format:
         env['_KLOGGY_TEST_FORMAT'] = 'KLOGGY %(levelname)s %(name)s: %(message)s'
     res = subprocess.run(

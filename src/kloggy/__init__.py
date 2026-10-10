@@ -13,6 +13,11 @@ import sys
 import warnings
 from typing import TextIO
 
+import colorlog
+
+# output format (F1), with the prefix coloured by level, if colorlog decides the stream supports it (F2)
+_FORMAT = '%(log_color)s[%(levelname)-7s %(asctime)s %(name)s %(filename)s:%(lineno)-4d]%(reset)s %(message)s'
+
 
 class _KloggyLogger(logging.Logger):
     """
@@ -265,10 +270,9 @@ def get_logger(name: str) -> logging.Logger:
     already_set_up = any(isinstance(h, _FallbackHandler) for h in package.handlers)
     if not already_set_up:
         handler = _FallbackHandler()
-        # Z1 only asks for level and logger name, the specific format is up to F21/F24
-        # private test override distinguishes kloggy's output without adding setup code to the examples
-        fmt = os.environ.get('_KLOGGY_TEST_FORMAT', logging.BASIC_FORMAT)
-        handler.setFormatter(logging.Formatter(fmt))
+        # F1, with a private override so tests can tell kloggy's output apart without adding setup code to the examples
+        fmt = os.environ.get('_KLOGGY_TEST_FORMAT', _FORMAT)
+        handler.setFormatter(colorlog.ColoredFormatter(fmt, stream=handler.stream))
         package.addHandler(handler)
 
     # same object, but with INFO by default while logging isn't configured (L2, L3)

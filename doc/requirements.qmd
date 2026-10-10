@@ -130,7 +130,7 @@ Even `basicConfig()`'s default `logging.BASIC_FORMAT` (`%(levelname)s:%(name)s:%
 
 **Related:**
 
-- the specific format is a separate concern, not decided yet
+- the specific format: see [F1](#f1)
 - which levels are shown when nothing is configured: see [L2](#l2)
 
 ### Z2: kloggy steps aside for good once logging is configured {#z2}
@@ -226,6 +226,35 @@ But the app always wins: levels already set explicitly aren't overridden `{pytho
 
 - `LOGGING_LEVEL`: too common a name for one library to claim
 - applying entries to any logger, including packages not using kloggy: it would change code that never opted into kloggy
+
+## F: output format
+
+### F1: Level, time, logger and source location {#f1}
+
+kloggy's output shows the level, time, logger name and source location of each record `{python} tests('test_f1_format')`:
+
+```text
+[INFO    2026-10-10 12:00:00,123 pkg.sub.mod mod.py:42  ] some message
+```
+
+i.e. `[%(levelname)-7s %(asctime)s %(name)s %(filename)s:%(lineno)-4d] %(message)s`:
+
+- the level is padded to 7 characters, so DEBUG, INFO, WARNING and ERROR line up.
+  The rare CRITICAL is one character wider, rather than truncated.
+- the timestamp includes milliseconds: only 4 characters, and handy as a rough profiler
+- both the logger name and the file: mostly redundant, but not when a record is logged via another module's logger,
+    e.g. cachew logs through the decorated module's logger, and the file still shows where it came from `{python} tests('test_f1_file')`
+- the line number is padded to 4 characters, so messages mostly line up
+
+### F2: Coloured by level on a terminal {#f2}
+
+On a terminal, the prefix in brackets is coloured by level `{python} tests('test_f2_tty')`.
+[colorlog](https://github.com/borntyping/python-colorlog) does the colouring, and decides when:
+  `FORCE_COLOR` colours even if the stream isn't a terminal `{python} tests('test_f2_force_color')`,
+  `NO_COLOR` disables colour, and otherwise only a terminal gets colour, e.g. not output redirected to a file `{python} tests('test_f1_format')`.
+
+colorlog is a hard dependency, so output looks the same everywhere.
+It's small, has no dependencies except `colorama` on Windows, and is actively maintained (several releases in 2026).
 
 ```{python}
 #| echo: false

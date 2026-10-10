@@ -3,6 +3,7 @@
 dynamic = ["version"]  # version is managed by build backend
 name = "kloggy"
 dependencies = [
+    "colorlog>=6.6",  # 6.6 added FORCE_COLOR support
 ]
 requires-python = ">=3.11"
 

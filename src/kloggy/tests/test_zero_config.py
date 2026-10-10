@@ -27,7 +27,7 @@ def test_z1_stdlib_baseline() -> None:
 def test_z1_not_bare() -> None:
     """
     Without any configuration, kloggy output includes the level and the logger name.
-    The specific format isn't checked, that's up to F21/F24.
+    The specific format isn't checked, that's F1.
     """
 
     def test() -> None:
