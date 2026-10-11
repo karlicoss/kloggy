@@ -102,6 +102,30 @@ class _FallbackHandler(logging.StreamHandler[TextIO]):
     Only prints a record if kloggy hasn't stepped aside for its logger, i.e. logging was never configured for it (Z2).
     """
 
+    def __init__(self) -> None:
+        # not StreamHandler.__init__, which would set the stream
+        logging.Handler.__init__(self)
+
+    # whatever sys.stderr is at the moment, like stdlib's logging.lastResort, e.g. a rich progress bar's or pytest's (Z4)
+    @property
+    def stream(self) -> TextIO:
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value: TextIO) -> None:
+        raise AssertionError(f"kloggy's handler always writes to the current sys.stderr, can't set it to {value}")
+
+    def format(self, record: logging.LogRecord) -> str:
+        formatter = self.formatter
+        assert isinstance(formatter, colorlog.ColoredFormatter), formatter
+        # colorlog decides on colour based on its stream, so it follows the current sys.stderr too
+        formatter.stream = self.stream
+        try:
+            return super().format(record)
+        finally:
+            # otherwise the formatter would keep e.g. a temporary replacement of sys.stderr alive until the next record
+            formatter.stream = None
+
     def handle(self, record: logging.LogRecord) -> bool:
         # decided here rather than in emit(), which runs under the handler's lock
         # getLogger() takes logging's module lock, and dictConfig() takes the two locks in the opposite order
@@ -296,7 +320,8 @@ def get_logger(name: str) -> logging.Logger:
         handler = _FallbackHandler()
         # F1, with a private override so tests can tell kloggy's output apart without adding setup code to the examples
         fmt = os.environ.get('_KLOGGY_TEST_FORMAT', _FORMAT)
-        handler.setFormatter(_Formatter(fmt, stream=handler.stream))
+        # no stream here: the handler sets it while formatting each record
+        handler.setFormatter(_Formatter(fmt))
         package.addHandler(handler)
 
     # same object, but with INFO by default while logging isn't configured (L2, L3)

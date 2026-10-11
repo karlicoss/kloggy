@@ -60,9 +60,9 @@ def test_f2_tty(*, no_color: bool) -> None:
     """
 
     def test(*, no_color: bool) -> None:
+        import contextlib
         import io
         import os
-        import sys
 
         if no_color:
             os.environ['NO_COLOR'] = '1'
@@ -71,13 +71,11 @@ def test_f2_tty(*, no_color: bool) -> None:
             def isatty(self) -> bool:
                 return True
 
-        terminal = Terminal()
-        sys.stderr = terminal
-
         from kloggy import get_logger
 
-        get_logger('pkg.mod').warning('some warning')
-        sys.stderr = sys.__stderr__
+        terminal = Terminal()
+        with contextlib.redirect_stderr(terminal):
+            get_logger('pkg.mod').warning('some warning')
         output = terminal.getvalue()
         if no_color:
             assert '\x1b[' not in output, repr(output)

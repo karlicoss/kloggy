@@ -6,6 +6,9 @@ import sys
 import textwrap
 import tokenize
 from collections.abc import Callable
+from typing import TextIO
+
+from rich.console import Console
 
 
 def run(test: Callable[..., None], *, test_format: bool = True, **kwargs: object) -> list[str]:
@@ -43,15 +46,20 @@ def run(test: Callable[..., None], *, test_format: bool = True, **kwargs: object
     # e.g. the user's own KLOGGY_LEVEL would change what tests print
     env.pop('KLOGGY_LEVEL', None)
     env.pop('KLOGGY_DISABLE', None)
-    # would add colour codes regardless of the stream (F2)
+    # would add or remove colour codes regardless of the stream (F2)
+    # individual tests set them explicitly instead
     env.pop('FORCE_COLOR', None)
+    env.pop('NO_COLOR', None)
+    # UTF-8 on both ends, i.e. here and when decoding below, which is the default on Linux, macOS, and since Python 3.15 on Windows (PEP 686)
+    # before that, Windows would use the locale's encoding, e.g. cp1252, which has no '━' that rich draws bars with
+    env['PYTHONIOENCODING'] = 'utf-8'
     if test_format:
         env['_KLOGGY_TEST_FORMAT'] = 'KLOGGY %(levelname)s %(name)s: %(message)s'
     res = subprocess.run(
         [sys.executable, '-c', code],
         env=env,
         capture_output=True,
-        text=True,
+        encoding='utf-8',
         check=False,
     )
     assert res.returncode == 0, res.stderr
@@ -80,3 +88,27 @@ def check_logs(test: Callable[..., None], *, test_format: bool = True, **kwargs:
     So lines without such a comment are checked not to print anything.
     """
     assert run(test, test_format=test_format, **kwargs) == logs_from_comments(test)
+
+
+def terminal_screen(output: str, *, columns: int = 100, rows: int = 20) -> list[str]:
+    """
+    Non-empty lines a terminal would show after this output, e.g. from rich, which moves the cursor around to redraw its progress bars.
+    """
+    import pyte
+
+    screen = pyte.Screen(columns, rows)
+    # like a terminal, which turns each newline into a carriage return plus newline
+    pyte.Stream(screen).feed(output.replace('\n', '\r\n'))
+    return [line.rstrip() for line in screen.display if line.strip() != '']
+
+
+def rich_console(terminal: TextIO) -> Console:
+    """
+    A rich console writing to a test terminal, e.g. for progress bars.
+    """
+    from rich.console import Console
+
+    # legacy_windows=False: otherwise rich detects a legacy console on Windows when stdout isn't a real console (e.g. in CI),
+    #   and draws bars with '-' instead of '━'
+    # the test terminal is a modern one anyway, since terminal_screen() reads it with a VT emulator
+    return Console(file=terminal, force_terminal=True, width=100, legacy_windows=False)

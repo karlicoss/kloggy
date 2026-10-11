@@ -26,6 +26,9 @@ Homepage = "https://github.com/karlicoss/kloggy"
 testing = [
     "pytest",
     "ruff",
+
+    "rich",  # for checking kloggy's output with rich's progress bars
+    "pyte",  # terminal emulator, to check what a terminal would show
 ]
 typecheck = [
     "mypy",

@@ -4,10 +4,12 @@ Z: output when logging isn't configured, i.e. kloggy's fallback handler.
 
 import logging
 from collections.abc import Callable
+from typing import TextIO
 
 import pytest
+from rich.console import Console
 
-from .common import check_logs, run
+from .common import check_logs, rich_console, run, terminal_screen
 
 
 def test_z1_stdlib_baseline() -> None:
@@ -349,6 +351,141 @@ def test_z3_stray_call_keeps_info() -> None:
         logger.info('some info')  # LOGS: KLOGGY INFO my.foo: some info
 
     check_logs(test)
+
+
+def test_z4_replaced_stderr() -> None:
+    """
+    kloggy writes to whatever sys.stderr is at the moment, like stdlib's logging.lastResort, even if it was replaced after get_logger().
+    E.g. contextlib.redirect_stderr, pytest's capsys, or a rich progress bar.
+    """
+
+    def test() -> None:
+        import contextlib
+        import io
+
+        from kloggy import get_logger
+
+        logger = get_logger('pkg.mod')
+        captured = io.StringIO()
+        with contextlib.redirect_stderr(captured):
+            logger.warning('redirected')
+        logger.warning('not redirected')  # LOGS: KLOGGY WARNING pkg.mod: not redirected
+        assert captured.getvalue() == 'KLOGGY WARNING pkg.mod: redirected\n', captured.getvalue()
+
+    check_logs(test)
+
+
+@pytest.mark.parametrize('replaced_with', ['terminal', 'file'])
+def test_z4_colour_follows(replaced_with: str) -> None:
+    """
+    Colour (F2) follows the current sys.stderr too: a terminal gets colour, a file doesn't,
+      regardless of what sys.stderr was when kloggy set up.
+    """
+
+    def test(*, replaced_with: str) -> None:
+        import contextlib
+        import io
+        import sys
+
+        class Terminal(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        from kloggy import get_logger
+
+        # for 'file', kloggy sets up on a terminal, which then gets replaced by a file
+        initial = Terminal() if replaced_with == 'file' else sys.stderr
+        replacement = Terminal() if replaced_with == 'terminal' else io.StringIO()
+        with contextlib.redirect_stderr(initial):
+            logger = get_logger('pkg.mod')
+            with contextlib.redirect_stderr(replacement):
+                logger.warning('some warning')
+        output = replacement.getvalue()
+        assert 'some warning' in output, repr(output)
+        assert output.startswith('\x1b[') == (replaced_with == 'terminal'), repr(output)
+
+    run(test, test_format=False, replaced_with=replaced_with)
+
+
+def test_z4_not_kept_alive() -> None:
+    """
+    Once sys.stderr is switched back, kloggy doesn't hold on to the replacement, so e.g. a buffer with lots of captured output can be freed.
+    """
+
+    def test() -> None:
+        import contextlib
+        import gc
+        import io
+        import weakref
+
+        from kloggy import get_logger
+
+        logger = get_logger('pkg.mod')
+        captured = io.StringIO()
+        with contextlib.redirect_stderr(captured):
+            logger.warning('redirected')
+        ref = weakref.ref(captured)
+        del captured
+        gc.collect()
+        assert ref() is None
+
+    check_logs(test)
+
+
+def test_z4_rich() -> None:
+    """
+    A rich progress bar doesn't mangle kloggy's output: it goes through rich, which prints each line above the bar.
+    Otherwise each line would be glued onto a frozen copy of the bar.
+    Also for records with several lines, e.g. with a traceback.
+    """
+
+    def test(*, terminal_screen: Callable[[str], list[str]], rich_console: Callable[[TextIO], Console]) -> None:
+        import contextlib
+        import io
+
+        from rich.progress import Progress
+
+        from kloggy import get_logger
+
+        class Terminal(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        def fail() -> None:
+            raise ValueError('boom')
+
+        # one terminal, which both kloggy (via sys.stderr) and rich write to, like in practice
+        terminal = Terminal()
+        with contextlib.redirect_stderr(terminal):
+            logger = get_logger('pkg.mod')  # before the progress bar starts, like a module-level logger
+            # no auto refresh, so rich doesn't start a thread for it, and this is all synchronous
+            with Progress(console=rich_console(terminal), auto_refresh=False) as progress:
+                task = progress.add_task('processing', total=3)
+                for item in range(3):
+                    if item == 1:
+                        try:
+                            fail()
+                        except ValueError:
+                            logger.exception('item %d failed', item)
+                    else:
+                        logger.info('item %d', item)
+                    progress.advance(task)
+
+        *logged, bar = terminal_screen(terminal.getvalue())
+        assert logged[:3] == [
+            'KLOGGY INFO pkg.mod: item 0',
+            'KLOGGY ERROR pkg.mod: item 1 failed',
+            'Traceback (most recent call last):',
+        ], logged
+        assert logged[-2:] == ['ValueError: boom', 'KLOGGY INFO pkg.mod: item 2'], logged
+        # no progress bars interleaved with the log lines, e.g. frozen copies of the bar, or log lines glued onto one
+        # rich draws its bars with '━', also the unfinished part
+        assert not any('━' in line for line in logged), logged
+        # a single bar, at the bottom, with nothing glued onto it
+        assert bar.startswith('processing ━'), bar
+        assert bar.endswith('100% 0:00:00'), bar
+
+    check_logs(test, terminal_screen=terminal_screen, rich_console=rich_console)
 
 
 def test_z27_no_deadlock_with_dict_config() -> None:
