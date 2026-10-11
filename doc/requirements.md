@@ -28,6 +28,9 @@
   - [F2: Coloured by level on a terminal](#f2)
 - [X: exceptions](#x-exceptions)
   - [X1: Exceptions logged as the message show their traceback](#x1)
+- [W: warnings](#w-warnings)
+  - [W1: `kloggy.warnings.setup()` makes warnings stand out](#w1)
+  - [W2: `warn_once()` warns once per message](#w2)
 - [C: concurrency](#c-concurrency)
   - [C1: Logging from several threads at once](#c1)
   - [C2: Logging from several processes](#c2)
@@ -502,6 +505,67 @@ but a logger imported from another module (`from .common import logger`) has to 
 
 Worth reconsidering once static checks can use type information, e.g. if ruff gets type-aware rules on top of ty:
 then a lint rule could flag `logger.error(e)` as well, and fixing call sites might be enough.
+
+## W: warnings
+
+<a id="w1"></a>
+
+### W1: `kloggy.warnings.setup()` makes warnings stand out
+
+An app can call `kloggy.warnings.setup()` (after `import kloggy.warnings`) to show each warning on one line, coloured on a terminal: the location dimmed, the category and message red.
+It's stdlib's first line, so terminals and editors can still jump to the location,
+without the source line stdlib prints under it (test: [`w1_format`](../src/kloggy/tests/test_warnings.py#L12 "test_w1_format")):
+
+``` text
+/path/to/config.py:12: FutureWarning: my.cfg is deprecated, import my.config instead
+```
+
+That source line is often just the `warnings.warn(...)` call repeating the message, e.g. for a module-level warning in a deprecated module.
+And stdlib doesn't colour warnings at all, unlike tracebacks, so they're easy to miss among log lines.
+
+Colour follows the same rules as kloggy's log output ([F2](#f2)), for the current `sys.stderr` ([Z4](#z4)) (test: [`w1_colour`](../src/kloggy/tests/test_warnings.py#L38 "test_w1_colour")).
+
+It's separate from `setup()` ([A1](#a1)): how warnings are shown is one global for the whole process, so the app opts in explicitly.
+It does nothing if something already customised it (`warnings.showwarning`), e.g. the app, IPython or pytest (test: [`w1_customised`](../src/kloggy/tests/test_warnings.py#L68 "test_w1_customised")),
+and the app can still replace it afterwards.
+Only how warnings are shown changes: which ones are shown (filters, `-W`) doesn't,
+and `logging.captureWarnings()` and `catch_warnings(record=True)` work as usual, without colour codes in what they get (test: [`w1_capture`](../src/kloggy/tests/test_warnings.py#L97 "test_w1_capture")).
+With `KLOGGY_DISABLE` ([L5](#l5)), it does nothing (test: [`w1_disabled`](../src/kloggy/tests/test_warnings.py#L126 "test_w1_disabled")).
+
+**Considered alternatives:**
+
+- overriding `warnings.formatwarning` rather than `showwarning`: `logging.captureWarnings()` and pytest's warnings summary format warnings with it,
+  so colour codes would end up there.
+- colour codes in the message itself, like HPI's `my.core.warnings`: they break filters matching on the message, and end up in captured output
+- part of `setup()`, or on import: it would restyle every library's warnings, whether the app wants that or not
+
+<a id="w2"></a>
+
+### W2: `warn_once()` warns once per message
+
+`kloggy.warnings.warn_once()` takes the same arguments as `warnings.warn()`, and shows each distinct warning once per process,
+at the same location `warnings.warn()` would (test: [`w2_once`](../src/kloggy/tests/test_warnings.py#L145 "test_w2_once")).
+It's meant for code that runs repeatedly, e.g. a check in a function called for every file.
+Elsewhere, plain `warnings.warn()` is enough, e.g. a module-level warning in a deprecated module is shown once anyway, since the module is imported once.
+
+stdlib also shows a warning once per message and location by default,
+but it forgets what it has shown whenever warning filters change anywhere, e.g. a library calling `warnings.catch_warnings()`,
+so the same warning shows again (test: [`w2_filters_changed`](../src/kloggy/tests/test_warnings.py#L171 "test_w2_filters_changed")).
+That's deliberate: stdlib leaves deduplication to the app's filters (e.g. `-W always`), and clears its records so that changed filters take effect
+([bpo-4180](https://bugs.python.org/issue4180)).
+
+**Caveats:**
+
+- once per distinct arguments, not per location, like stdlib's `once` action: the same message from another place isn't shown again
+- it overrides the app's choice: even `-W always` doesn't show repeats
+- a call whose warning was filtered out (e.g. by an `ignore` filter, or inside `pytest.warns()`) counts too
+- tests can start afresh with `warn_once.cache_clear()`
+
+**Considered alternatives:**
+
+- once per message and location, like stdlib's default: needs computing the warning's location the way `warnings.warn()` does
+  (`stacklevel`, `skip_file_prefixes`), rather than leaving it to stdlib
+- deduplicating in kloggy's display ([W1](#w1)): would only work with it set up, and would also hide repeats of every other library's warnings
 
 ## C: concurrency
 

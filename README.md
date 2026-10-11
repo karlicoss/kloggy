@@ -70,6 +70,9 @@ Unlike `setLevel()` in the module, it's only kloggy's default, so levels set by 
 - log via the module logger, not the root logger (`logging.warning(...)` etc.), ruff rule [`LOG015`](https://docs.astral.sh/ruff/rules/root-logger-call/) catches these.
   Such calls implicitly call `basicConfig()`.
   kloggy copes with that ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3)), but an app's own `basicConfig(...)` called later is then silently ignored.
+- for warnings from code that runs repeatedly, e.g. a check in a function called for every file, use `kloggy.warnings.warn_once()`:
+    same arguments as `warnings.warn()`, but each distinct warning is shown once,
+    also if something changes warning filters in between, which makes stdlib show it again ([W2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#w2))
 
 ## Using kloggy in an app
 
@@ -94,6 +97,9 @@ The exception is root's default handler from a bare `basicConfig()`, e.g. a stra
 
 `datefmt` works as in `basicConfig()`, e.g. `datefmt='%Y-%m-%d %H:%M:%S'` drops the milliseconds.
 
+To make warnings stand out too, call `kloggy.warnings.setup()` (after `import kloggy.warnings`) ([W1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#w1)):
+  each warning is then shown on one line, coloured on a terminal, without the source line stdlib prints under it.
+
 ## Environment variables
 
 Users running a program can adjust kloggy's behaviour without changing any code:
@@ -109,6 +115,16 @@ Users running a program can adjust kloggy's behaviour without changing any code:
 
 `KLOGGY_LEVEL` and `KLOGGY_DISABLE` are read once, on the first `get_logger()` call (`KLOGGY_DISABLE` also on `setup()`), so set them before the program starts:
   setting `os.environ` in `main()` is usually too late, since imports have already called `get_logger()`.
+
+## Alternatives
+
+- [logzero](https://github.com/metachris/logzero) and [coloredlogs](https://github.com/xolox/python-coloredlogs): coloured output, but unmaintained
+    (logzero's repo was archived in 2022, coloredlogs' last release was in 2021).
+  logzero also sets up its own handlers with `propagate = False`, so the app's configuration doesn't reach them.
+- [loguru](https://github.com/Delgan/loguru) and [structlog](https://www.structlog.org): replace stdlib's logging model, so library code would depend on them.
+  kloggy's loggers are plain `logging.Logger` objects.
+- [daiquiri](https://daiquiri.readthedocs.io): app-side setup only, like `setup()`, without zero-config output for libraries or levels from an env variable.
+- [envlog](https://pypi.org/project/envlog/): levels from a `RUST_LOG`-like env variable, but it configures root itself.
 
 ## Development
 
