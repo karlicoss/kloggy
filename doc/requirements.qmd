@@ -23,9 +23,10 @@ Requirement IDs are stable: don't renumber, retire instead.
 
 ### Configured {#configured}
 
-Logging is configured for a logger if its records would reach some handler other than kloggy's own:
+Logging is configured for a logger if its records would reach some handler other than the one kloggy's `get_logger()` adds:
   walking up from the logger to root, stopping at the first logger with `propagate = False`.
 Except root's default `basicConfig()` handler doesn't count, see [Z3](#z3).
+The one `setup()` adds does count, see [A1](#a1).
 
 This is the notion stdlib itself uses: `Logger.callHandlers` falls back to `logging.lastResort` only when that walk finds no handlers,
   and `Logger.hasHandlers()` does the same walk.
@@ -116,7 +117,7 @@ So logging behaves exactly as plain stdlib, e.g. if kloggy causes problems, with
 Values are the usual boolean words, as in systemd: `1`, `true`, `yes`, `on` disable kloggy, `0`, `false`, `no`, `off` don't, case-insensitive.
 Empty means not set `{python} tests('test_l5_values')`.
 Anything else is ignored with a warning naming `KLOGGY_DISABLE` `{python} tests('test_l5_invalid')`.
-It's read once, on the first `get_logger()` call.
+It's read once, on the first `get_logger()` or `setup()` call.
 
 **Rejected alternatives:**
 
@@ -286,6 +287,37 @@ But the app always wins: levels already set explicitly aren't overridden `{pytho
 
 - `LOGGING_LEVEL`: too common a name for one library to claim
 - applying entries to any logger, including packages not using kloggy: it would change code that never opted into kloggy
+
+## A: application-side setup
+
+### A1: `setup()` sets up logging for the whole app {#a1}
+
+An app can call `kloggy.setup()` in its `main()` instead of `basicConfig()`,
+  so every logger's output looks the same, also from libraries not using kloggy `{python} tests('test_a1_setup')`.
+
+Like `basicConfig()`, it adds a handler on root and sets root's level, INFO by default `{python} tests('test_a1_level')`.
+So it's an ordinary configuration: kloggy steps aside ([Z2](#z2)), and root's level applies to every logger,
+  also instead of kloggy's own defaults ([L2](#l2), [L6](#l6)) `{python} tests('test_a1_default_level')`.
+`KLOGGY_LEVEL` still applies, since it sets real levels ([V1](#v1)) `{python} tests('test_a1_kloggy_level')`.
+
+Unlike `basicConfig()`'s handler, the output is kloggy's: the format ([F1](#f1)), colour ([F2](#f2)) and tracebacks ([X1](#x1)),
+  and it goes to the current `sys.stderr` ([Z4](#z4)), e.g. through a rich progress bar `{python} tests('test_a1_current_stderr')`.
+The time format can be changed as in `basicConfig()`, e.g. `setup(datefmt='%Y-%m-%d %H:%M:%S')` without milliseconds,
+  and by default it's F1's, with milliseconds `{python} tests('test_a1_datefmt')`.
+
+Also like `basicConfig()`, it does nothing if logging is already configured, e.g. by the app or an earlier `setup()` call,
+  so nothing is printed twice `{python} tests('test_a1_already_configured', 'test_a1_twice')`.
+Except root's default `basicConfig()` handler, e.g. from a stray `logging.warning()` ([Z3](#z3)), which it replaces
+  `{python} tests('test_a1_stray_basic_config')`.
+
+With `KLOGGY_DISABLE` ([L5](#l5)), it's plain `basicConfig(level=...)` `{python} tests('test_a1_disabled')`.
+
+**Considered alternatives:**
+
+- kloggy keeps handling its packages' levels after `setup()`, i.e. root's handler doesn't count as configured:
+    kloggy packages keep INFO and per-module defaults while other libraries stay at WARNING,
+    but then records need deduplicating between the package's handler and root's.
+  Root's level for every logger is simpler, and libraries rarely log at INFO.
 
 ## F: output format
 

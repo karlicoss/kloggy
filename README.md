@@ -61,6 +61,22 @@ Avoid logging via the root logger (`logging.warning(...)` etc.), use the module 
 Such calls implicitly call `basicConfig()`.
 kloggy copes with that ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3)), but an app's own `basicConfig(...)` called later is then silently ignored.
 
+## Using kloggy in an app
+
+Call `kloggy.setup()` in `main()` instead of `logging.basicConfig()` ([A1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#a1)):
+
+```python
+import kloggy
+
+
+def main() -> None:
+    kloggy.setup()  # or e.g. kloggy.setup(level='debug')
+```
+
+Every logger then gets kloggy's output, also libraries not using kloggy, at INFO by default.
+Like `basicConfig()`, root's level applies to every logger, and `setup()` does nothing if logging is already configured.
+`datefmt` works as in `basicConfig()`, e.g. `datefmt='%Y-%m-%d %H:%M:%S'` drops the milliseconds.
+
 ## Development
 
 The tooling follows [pymplate](https://github.com/karlicoss/pymplate).

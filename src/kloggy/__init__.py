@@ -107,15 +107,19 @@ class _Formatter(colorlog.ColoredFormatter):
         return super().format(record)
 
 
-class _FallbackHandler(logging.StreamHandler[TextIO]):
+class _Handler(logging.StreamHandler[TextIO]):
     """
-    Used instead of stdlib's logging.lastResort which prints bare messages (Z1).
-    Only prints a record if kloggy hasn't stepped aside for its logger, i.e. logging was never configured for it (Z2).
+    kloggy's output: the fallback handler's, and the one setup() adds on root (A1).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, datefmt: str | None = None) -> None:
         # not StreamHandler.__init__, which would set the stream
         logging.Handler.__init__(self)
+        # F1, with a private override so tests can tell kloggy's output apart without adding setup code to the examples
+        fmt = os.environ.get('_KLOGGY_TEST_FORMAT', _FORMAT)
+        # no stream here: format() sets it for each record
+        # datefmt=None is stdlib's default, with milliseconds (F1)
+        self.setFormatter(_Formatter(fmt, datefmt=datefmt))
 
     # whatever sys.stderr is at the moment, like stdlib's logging.lastResort, e.g. a rich progress bar's or pytest's (Z4)
     @property
@@ -136,6 +140,13 @@ class _FallbackHandler(logging.StreamHandler[TextIO]):
         finally:
             # otherwise the formatter would keep e.g. a temporary replacement of sys.stderr alive until the next record
             formatter.stream = None
+
+
+class _FallbackHandler(_Handler):
+    """
+    Used instead of stdlib's logging.lastResort which prints bare messages (Z1).
+    Only prints a record if kloggy hasn't stepped aside for its logger, i.e. logging was never configured for it (Z2).
+    """
 
     def handle(self, record: logging.LogRecord) -> bool:
         # decided here rather than in emit(), which runs under the handler's lock
@@ -245,6 +256,17 @@ def _level_names() -> dict[str, int]:
     return {**logging.getLevelNamesMapping(), 'OFF': _OFF}
 
 
+def _to_level(level: int | str) -> int:
+    """
+    A level passed to get_logger() (L6) or setup() (A1): a logging constant, or a name as in KLOGGY_LEVEL, case-insensitive.
+    """
+    if isinstance(level, int):
+        return level
+    res = _level_names().get(level.upper())
+    assert res is not None, f'unknown level {level!r}'
+    return res
+
+
 def _parse_level_spec(spec: str) -> dict[str, int]:
     """
     Logger name -> level from a KLOGGY_LEVEL spec, e.g. 'warning,pkg.sub=debug', with '' for the default (V1).
@@ -285,7 +307,7 @@ _FALSE = {'', '0', 'false', 'no', 'off'}
 @functools.cache
 def _disabled() -> bool:
     """
-    KLOGGY_DISABLE, read once, on the first get_logger() call (L5).
+    KLOGGY_DISABLE, read once, on the first get_logger() or setup() call (L5).
     """
     value = os.environ.get('KLOGGY_DISABLE', '')
     if value.strip().lower() in _TRUE:
@@ -320,11 +342,8 @@ def _apply_levels(package: str) -> None:
 
 
 def get_logger(name: str, *, default_level: int | str | None = None) -> logging.Logger:
-    if isinstance(default_level, str):
-        # same names as in KLOGGY_LEVEL, case-insensitive
-        level = _level_names().get(default_level.upper())
-        assert level is not None, f'unknown level {default_level!r}'
-        default_level = level
+    if default_level is not None:
+        default_level = _to_level(default_level)
 
     if _disabled():
         # the user opted out of kloggy completely (L5)
@@ -345,13 +364,30 @@ def get_logger(name: str, *, default_level: int | str | None = None) -> logging.
     package = logging.getLogger(package_name)
     already_set_up = any(isinstance(h, _FallbackHandler) for h in package.handlers)
     if not already_set_up:
-        handler = _FallbackHandler()
-        # F1, with a private override so tests can tell kloggy's output apart without adding setup code to the examples
-        fmt = os.environ.get('_KLOGGY_TEST_FORMAT', _FORMAT)
-        # no stream here: the handler sets it while formatting each record
-        handler.setFormatter(_Formatter(fmt))
-        package.addHandler(handler)
+        package.addHandler(_FallbackHandler())
 
     # same object, but with INFO (or default_level) by default while logging isn't configured (L2, L3, L6)
     logger.__class__ = _kloggy_class(type(logger))
     return logger
+
+
+def setup(*, level: int | str = logging.INFO, datefmt: str | None = None) -> None:
+    """
+    Sets up logging for the whole app, like basicConfig(), but with kloggy's output for every logger (A1).
+    datefmt is as in basicConfig(), by default with milliseconds (F1).
+    """
+    level = _to_level(level)
+    if _disabled():
+        # plain stdlib instead (L5)
+        logging.basicConfig(level=level, datefmt=datefmt)
+        return
+    root = logging.getLogger()
+    if any(not _is_default_basic_config_handler(h) for h in root.handlers):
+        # like basicConfig(): logging is already configured, e.g. by the app, or an earlier setup() call
+        return
+    # root's default basicConfig() handler, e.g. from a stray logging.warning() call (Z3), would print everything again
+    for h in list(root.handlers):
+        root.removeHandler(h)
+        h.close()
+    root.addHandler(_Handler(datefmt=datefmt))
+    root.setLevel(level)
