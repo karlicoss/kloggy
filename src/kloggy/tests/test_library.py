@@ -416,3 +416,153 @@ def test_l3_effective_level() -> None:
         print('configured:', level, type(level).__name__, file=sys.stderr)  # LOGS: configured: 10 int
 
     check_logs(test)
+
+
+def test_l6_default_level() -> None:
+    """
+    A module's default level replaces INFO for its logger while logging isn't configured, also for its child loggers.
+    """
+
+    def test() -> None:
+        import logging
+
+        from kloggy import get_logger
+
+        logger = get_logger('pkg.mod', default_level='warning')
+        logger.info('mod info')
+        logger.warning('mod warning')  # LOGS: KLOGGY WARNING pkg.mod: mod warning
+        assert logger.getEffectiveLevel() == logging.WARNING, logger.getEffectiveLevel()
+        get_logger('pkg.mod.sub').info('sub info')
+        get_logger('pkg.other').info('other info')  # LOGS: KLOGGY INFO pkg.other: other info
+
+    check_logs(test)
+
+
+def test_l6_nearest_default() -> None:
+    """
+    The nearest default wins, e.g. a module can be more verbose than its package, and `logging` constants work too.
+    """
+
+    def test() -> None:
+        import logging
+
+        from kloggy import get_logger
+
+        get_logger('pkg', default_level=logging.ERROR)
+        get_logger('pkg.mod', default_level=logging.DEBUG).debug('mod debug')  # LOGS: KLOGGY DEBUG pkg.mod: mod debug
+        get_logger('pkg.other').warning('other warning')
+        get_logger('pkg.other').error('other error')  # LOGS: KLOGGY ERROR pkg.other: other error
+
+    check_logs(test)
+
+
+def test_l6_other_code() -> None:
+    """
+    It applies to records other code logs through the module's logger too, e.g. cachew logs through the decorated function's module logger.
+    """
+
+    def test() -> None:
+        import logging
+
+        from kloggy import get_logger
+
+        get_logger('pkg.mod', default_level='warning')
+        # same logger object as the module's
+        logging.getLogger('pkg.mod').info('loading 100 objects from cachew')
+        logging.getLogger('pkg.mod').warning('cachew warning')  # LOGS: KLOGGY WARNING pkg.mod: cachew warning
+
+    check_logs(test)
+
+
+def test_l6_explicit_level() -> None:
+    """
+    Levels set explicitly, on the logger or an ancestor below root, beat the default.
+    Also when set before the module is imported, e.g. with lazy imports or pytest's `caplog`, which a plain `setLevel()` in the module would overwrite.
+    """
+
+    def test() -> None:
+        import logging
+
+        from kloggy import get_logger
+
+        # before the modules call get_logger(), e.g. imported lazily
+        logging.getLogger('pkg.a').setLevel(logging.DEBUG)
+        logging.getLogger('pkg.b').setLevel(logging.DEBUG)
+        get_logger('pkg.a', default_level='warning').debug('a debug')  # LOGS: KLOGGY DEBUG pkg.a: a debug
+        # the explicit level is further up than the default, and still wins
+        get_logger('pkg.b.mod', default_level='warning').debug('b debug')  # LOGS: KLOGGY DEBUG pkg.b.mod: b debug
+        # after
+        c = get_logger('pkg.c', default_level='warning')
+        logging.getLogger('pkg.c').setLevel(logging.DEBUG)
+        c.debug('c debug')  # LOGS: KLOGGY DEBUG pkg.c: c debug
+
+    check_logs(test)
+
+
+@pytest.mark.parametrize('spec', ['debug', 'pkg.mod=debug'])
+def test_l6_kloggy_level(spec: str) -> None:
+    """
+    `KLOGGY_LEVEL` sets explicit levels, so it beats the default, e.g. `KLOGGY_LEVEL=debug` shows everything.
+    """
+
+    def test(*, spec: str) -> None:
+        import os
+
+        os.environ['KLOGGY_LEVEL'] = spec
+
+        from kloggy import get_logger
+
+        get_logger('pkg.mod', default_level='warning').debug('mod debug')  # LOGS: KLOGGY DEBUG pkg.mod: mod debug
+
+    check_logs(test, spec=spec)
+
+
+def test_l6_app_configured() -> None:
+    """
+    Once the app configures logging, the app's levels apply, same as for INFO (L3).
+    """
+
+    def test() -> None:
+        import logging
+
+        from kloggy import get_logger
+
+        logger = get_logger('pkg.mod', default_level='warning')
+        logger.info('info before')  # below the module's default
+        logging.basicConfig(level=logging.INFO, format='APP %(levelname)s %(name)s: %(message)s')
+        logger.info('info after')  # LOGS: APP INFO pkg.mod: info after
+
+    check_logs(test)
+
+
+def test_l6_last_wins() -> None:
+    """
+    If several calls pass different defaults for the same logger, the last one wins, and calls without one keep it.
+    """
+
+    def test() -> None:
+        from kloggy import get_logger
+
+        get_logger('pkg.mod', default_level='warning')
+        get_logger('pkg.mod', default_level='error')
+        logger = get_logger('pkg.mod')
+        logger.warning('mod warning')
+        logger.error('mod error')  # LOGS: KLOGGY ERROR pkg.mod: mod error
+
+    check_logs(test)
+
+
+def test_l6_invalid() -> None:
+    """
+    An unknown level name is an error, since it's a bug in the code rather than e.g. a typo in an env variable.
+    """
+
+    def test() -> None:
+        import pytest
+
+        from kloggy import get_logger
+
+        with pytest.raises(AssertionError, match='loud'):
+            get_logger('pkg.mod', default_level='loud')
+
+    check_logs(test)

@@ -12,6 +12,13 @@ Implementation: [`src/kloggy/__init__.py`](../src/kloggy/__init__.py), tests: [`
 
 Requirement IDs are stable: don't renumber, retire instead.
 
+## Principles
+
+- **The app always wins:** kloggy's output is only a fallback while logging isn't configured.
+  Once the app configures logging, its handlers and levels apply ([L1](#l1), [L3](#l3), [Z2](#z2)), and so does its own `setLevel()` ([V1](#v1)).
+- **Stdlib-shaped:** library code only deals with plain `logging.Logger` objects ([L2](#l2)),
+    so kloggy can be switched off without changing any code ([L5](#l5)).
+
 ## Definitions
 
 ### Configured {#configured}
@@ -117,6 +124,34 @@ It's read once, on the first `get_logger()` call.
     and empty usually means unset
 - `KLOGGY_LEVEL=off`: `off` means silence, while opting out still prints warnings via stdlib's `logging.lastResort`
 - any non-empty value disables, like many `PYTHON*` variables: then `KLOGGY_DISABLE=0` would disable kloggy too
+
+### L6: Per-module default levels {#l6}
+
+A module can pick its own default instead of INFO, e.g. `get_logger(__name__, default_level='warning')` for a module whose INFO is too chatty in a typical run
+  `{python} tests('test_l6_default_level')`.
+Child loggers inherit it, and the nearest default wins `{python} tests('test_l6_nearest_default')`.
+It also applies to records other code logs through the module's logger, e.g. cachew logs through the decorated function's module logger
+  `{python} tests('test_l6_other_code')`.
+
+Like INFO ([L2](#l2)), it's only a default for kloggy's output, never set on the logger itself, so:
+
+- levels set explicitly, on the logger or an ancestor below root, win, also if the app set them before the module was imported
+    `{python} tests('test_l6_explicit_level')`
+- that includes `KLOGGY_LEVEL` ([V1](#v1)), e.g. `KLOGGY_LEVEL=debug` shows DEBUG from such modules too `{python} tests('test_l6_kloggy_level')`
+- once the app configures logging, the app's levels apply, same as for INFO ([L3](#l3)) `{python} tests('test_l6_app_configured')`
+
+If several calls pass different defaults for the same logger, the last one wins `{python} tests('test_l6_last_wins')`.
+Level names are the same as in `KLOGGY_LEVEL`, case-insensitive, and `logging` constants work too.
+An unknown name is an error, since it's a bug in the code `{python} tests('test_l6_invalid')`.
+
+It's named `default_level`, since stdlib's `level` means a level set on the logger.
+
+**Considered alternatives:**
+
+- `setLevel()` in the module: the app's `basicConfig(level=DEBUG)` doesn't reach the module, since it only sets root's level.
+  It also overwrites levels set before the module was imported (e.g. with lazy imports, or pytest's `caplog`), including `KLOGGY_LEVEL`'s.
+- no per-module defaults, demoting chatty messages to DEBUG instead:
+    doesn't help with records other code logs through the module's logger, e.g. cachew's
 
 ## Z: zero-config output
 
@@ -357,6 +392,7 @@ Worth reconsidering once static checks can use type information, e.g. if ruff ge
 
 Several threads can log at once, also with free-threaded Python: each record is printed whole, on its own line,
   e.g. through a rich progress bar ([Z4](#z4)) `{python} tests('test_c1_threads')`.
+Concurrent logging configuration doesn't deadlock `{python} tests('test_c1_no_deadlock_with_dict_config')`.
 
 ### C2: Logging from several processes {#c2}
 

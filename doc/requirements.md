@@ -1,6 +1,7 @@
 # kloggy requirements
 
 
+- [Principles](#principles)
 - [Definitions](#definitions)
   - [Configured](#configured)
 - [L: library-side API](#l-library-side-api)
@@ -9,6 +10,7 @@
   - [L3: The app's levels apply once it configures logging](#l3)
   - [L4: Named `get_logger`](#l4)
   - [L5: `KLOGGY_DISABLE` opts out of kloggy completely](#l5)
+  - [L6: Per-module default levels](#l6)
 - [Z: zero-config output](#z-zero-config-output)
   - [Z1: No bare messages](#z1)
   - [Z2: kloggy steps aside for good once logging is configured](#z2)
@@ -29,6 +31,13 @@ kloggy is developed requirements-first: requirements are agreed on before they a
 Implementation: [`src/kloggy/__init__.py`](../src/kloggy/__init__.py), tests: [`src/kloggy/tests/`](../src/kloggy/tests/).
 
 Requirement IDs are stable: don't renumber, retire instead.
+
+## Principles
+
+- **The app always wins:** kloggy's output is only a fallback while logging isn't configured.
+  Once the app configures logging, its handlers and levels apply ([L1](#l1), [L3](#l3), [Z2](#z2)), and so does its own `setLevel()` ([V1](#v1)).
+- **Stdlib-shaped:** library code only deals with plain `logging.Logger` objects ([L2](#l2)),
+  so kloggy can be switched off without changing any code ([L5](#l5)).
 
 ## Definitions
 
@@ -145,6 +154,36 @@ It's read once, on the first `get_logger()` call.
   and empty usually means unset
 - `KLOGGY_LEVEL=off`: `off` means silence, while opting out still prints warnings via stdlib's `logging.lastResort`
 - any non-empty value disables, like many `PYTHON*` variables: then `KLOGGY_DISABLE=0` would disable kloggy too
+
+<a id="l6"></a>
+
+### L6: Per-module default levels
+
+A module can pick its own default instead of INFO, e.g. `get_logger(__name__, default_level='warning')` for a module whose INFO is too chatty in a typical run
+(test: [`l6_default_level`](../src/kloggy/tests/test_library.py#L421 "test_l6_default_level")).
+Child loggers inherit it, and the nearest default wins (test: [`l6_nearest_default`](../src/kloggy/tests/test_library.py#L441 "test_l6_nearest_default")).
+It also applies to records other code logs through the module's logger, e.g. cachew logs through the decorated function's module logger
+(test: [`l6_other_code`](../src/kloggy/tests/test_library.py#L459 "test_l6_other_code")).
+
+Like INFO ([L2](#l2)), it's only a default for kloggy's output, never set on the logger itself, so:
+
+- levels set explicitly, on the logger or an ancestor below root, win, also if the app set them before the module was imported
+  (test: [`l6_explicit_level`](../src/kloggy/tests/test_library.py#L477 "test_l6_explicit_level"))
+- that includes `KLOGGY_LEVEL` ([V1](#v1)), e.g. `KLOGGY_LEVEL=debug` shows DEBUG from such modules too (test: [`l6_kloggy_level`](../src/kloggy/tests/test_library.py#L503 "test_l6_kloggy_level"))
+- once the app configures logging, the app's levels apply, same as for INFO ([L3](#l3)) (test: [`l6_app_configured`](../src/kloggy/tests/test_library.py#L520 "test_l6_app_configured"))
+
+If several calls pass different defaults for the same logger, the last one wins (test: [`l6_last_wins`](../src/kloggy/tests/test_library.py#L538 "test_l6_last_wins")).
+Level names are the same as in `KLOGGY_LEVEL`, case-insensitive, and `logging` constants work too.
+An unknown name is an error, since it's a bug in the code (test: [`l6_invalid`](../src/kloggy/tests/test_library.py#L555 "test_l6_invalid")).
+
+It's named `default_level`, since stdlib's `level` means a level set on the logger.
+
+**Considered alternatives:**
+
+- `setLevel()` in the module: the app's `basicConfig(level=DEBUG)` doesn't reach the module, since it only sets root's level.
+  It also overwrites levels set before the module was imported (e.g. with lazy imports, or pytest's `caplog`), including `KLOGGY_LEVEL`'s.
+- no per-module defaults, demoting chatty messages to DEBUG instead:
+  doesn't help with records other code logs through the module's logger, e.g. cachew's
 
 ## Z: zero-config output
 
@@ -403,6 +442,7 @@ then a lint rule could flag `logger.error(e)` as well, and fixing call sites mig
 
 Several threads can log at once, also with free-threaded Python: each record is printed whole, on its own line,
 e.g. through a rich progress bar ([Z4](#z4)) (test: [`c1_threads`](../src/kloggy/tests/test_concurrency.py#L15 "test_c1_threads")).
+Concurrent logging configuration doesn't deadlock (test: [`c1_no_deadlock_with_dict_config`](../src/kloggy/tests/test_concurrency.py#L66 "test_c1_no_deadlock_with_dict_config")).
 
 <a id="c2"></a>
 
@@ -412,4 +452,4 @@ Other processes can't print through the main process's terminal handling, e.g. i
 So workers should send their records to the main process,
 e.g. with stdlib's [`QueueHandler` recipe](https://docs.python.org/3/howto/logging-cookbook.html#logging-to-a-single-file-from-multiple-processes).
 kloggy works with that: in a worker, the `QueueHandler` counts as configured, so kloggy doesn't print there,
-and the main process prints the workers' records (test: [`c2_processes`](../src/kloggy/tests/test_concurrency.py#L87 "test_c2_processes")).
+and the main process prints the workers' records (test: [`c2_processes`](../src/kloggy/tests/test_concurrency.py#L113 "test_c2_processes")).

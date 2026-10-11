@@ -19,11 +19,18 @@ import colorlog
 # output format (F1), with the prefix coloured by level, if colorlog decides the stream supports it (F2)
 _FORMAT = '%(log_color)s[%(levelname)-7s %(asctime)s %(name)s %(filename)s:%(lineno)-4d]%(reset)s %(message)s'
 
+# level while logging isn't configured, rather than root's WARNING, e.g. to show progress (L2)
+_DEFAULT_LEVEL = logging.INFO
+
+
+# logger name -> default_level passed to get_logger(), used instead of _DEFAULT_LEVEL (L6)
+_defaults: dict[str, int] = {}
+
 
 class _KloggyLogger(logging.Logger):
     """
     Class of loggers returned by get_logger().
-    While logging isn't configured, their level defaults to INFO rather than root's WARNING (L2).
+    While logging isn't configured, their level defaults to INFO (L2), or a module's own default (L6), rather than root's WARNING.
     Decided per call, so once the app configures logging, stdlib's levels apply straight away (L3), for good (Z2).
     """
 
@@ -42,15 +49,19 @@ class _KloggyLogger(logging.Logger):
 
     def _level_while_unconfigured(self) -> int:
         """
-        Same as stdlib's effective level, except INFO rather than root's level (L2).
+        Same as stdlib's effective level, except kloggy's default rather than root's level:
+          the nearest default_level passed to get_logger() (L6), otherwise INFO (L2).
         """
+        default: int | None = None
         logger: logging.Logger = self
         while logger.parent is not None:
             if logger.level != logging.NOTSET:
-                # explicitly set, e.g. by the app
+                # explicitly set, e.g. by the app, so it beats any default, also one nearer to the logger
                 return logger.level
+            if default is None:
+                default = _defaults.get(logger.name)
             logger = logger.parent
-        return logging.INFO
+        return _DEFAULT_LEVEL if default is None else default
 
 
 _kloggy_classes: dict[type[logging.Logger], type[logging.Logger]] = {logging.Logger: _KloggyLogger}
@@ -137,7 +148,7 @@ class _FallbackHandler(logging.StreamHandler[TextIO]):
                 _drop(record)
             return printed
         if record.levelno < logger.getEffectiveLevel():
-            # created just before the app configured logging, at kloggy's INFO (L3)
+            # created just before the app configured logging, at kloggy's default level (L3)
             _drop(record)
         elif not _reaches_other_handlers(logger):
             # the app removed its handlers since, so same as stdlib without any handlers (Z2)
@@ -227,12 +238,19 @@ def _has_stepped_aside(logger: logging.Logger) -> bool:
 _OFF = logging.CRITICAL + 1
 
 
+def _level_names() -> dict[str, int]:
+    """
+    Upper-case level name -> level, for KLOGGY_LEVEL (V1) and get_logger(default_level=...) (L6).
+    """
+    return {**logging.getLevelNamesMapping(), 'OFF': _OFF}
+
+
 def _parse_level_spec(spec: str) -> dict[str, int]:
     """
     Logger name -> level from a KLOGGY_LEVEL spec, e.g. 'warning,pkg.sub=debug', with '' for the default (V1).
     Like RUST_LOG, invalid entries are ignored with a warning, and a later entry for the same logger wins.
     """
-    level_names = {**logging.getLevelNamesMapping(), 'OFF': _OFF}
+    level_names = _level_names()
     levels: dict[str, int] = {}
     for entry in spec.split(','):
         entry = entry.strip()
@@ -301,7 +319,13 @@ def _apply_levels(package: str) -> None:
             logger.setLevel(level)
 
 
-def get_logger(name: str) -> logging.Logger:
+def get_logger(name: str, *, default_level: int | str | None = None) -> logging.Logger:
+    if isinstance(default_level, str):
+        # same names as in KLOGGY_LEVEL, case-insensitive
+        level = _level_names().get(default_level.upper())
+        assert level is not None, f'unknown level {default_level!r}'
+        default_level = level
+
     if _disabled():
         # the user opted out of kloggy completely (L5)
         return logging.getLogger(name)
@@ -314,6 +338,10 @@ def get_logger(name: str) -> logging.Logger:
         # don't touch logging state if the app already configured it (L1)
         return logger
 
+    if default_level is not None:
+        # only kloggy uses it, never set on the logger itself, so the app's levels still win (L6)
+        _defaults[name] = default_level
+
     package = logging.getLogger(package_name)
     already_set_up = any(isinstance(h, _FallbackHandler) for h in package.handlers)
     if not already_set_up:
@@ -324,6 +352,6 @@ def get_logger(name: str) -> logging.Logger:
         handler.setFormatter(_Formatter(fmt))
         package.addHandler(handler)
 
-    # same object, but with INFO by default while logging isn't configured (L2, L3)
+    # same object, but with INFO (or default_level) by default while logging isn't configured (L2, L3, L6)
     logger.__class__ = _kloggy_class(type(logger))
     return logger

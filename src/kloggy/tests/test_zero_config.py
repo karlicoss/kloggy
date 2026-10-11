@@ -486,31 +486,3 @@ def test_z4_rich() -> None:
         assert bar.endswith('100% 0:00:00'), bar
 
     check_logs(test, terminal_screen=terminal_screen, rich_console=rich_console)
-
-
-def test_z27_no_deadlock_with_dict_config() -> None:
-    """
-    kloggy's handler never waits for logging's module lock while holding its own lock.
-    `dictConfig()` holds the module lock while it acquires every handler's lock, so logging from another thread could deadlock otherwise.
-    """
-
-    def test() -> None:
-        import logging
-        import threading
-
-        from kloggy import get_logger
-
-        logger = get_logger('my.foo')
-        [handler] = logging.getLogger('my').handlers
-        assert handler.lock is not None
-        # caches the level check, which would otherwise wait for the module lock before any handler
-        logger.warning('some warning')
-        with getattr(logging, '_lock'):  # what dictConfig() holds while it acquires the handlers' locks
-            t = threading.Thread(target=logger.warning, args=('some warning',))
-            t.start()
-            t.join(timeout=0.5)  # the thread blocks on the module lock
-            assert handler.lock.acquire(timeout=5)
-            handler.lock.release()
-        t.join()
-
-    run(test)

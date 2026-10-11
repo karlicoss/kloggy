@@ -9,7 +9,7 @@ from typing import Any, TextIO
 import pytest
 from rich.console import Console
 
-from .common import check_logs, rich_console, terminal_screen
+from .common import check_logs, rich_console, run, terminal_screen
 
 
 def test_c1_threads() -> None:
@@ -61,6 +61,32 @@ def test_c1_threads() -> None:
         assert '100%' in bar, bar
 
     check_logs(test, terminal_screen=terminal_screen, rich_console=rich_console)
+
+
+def test_c1_no_deadlock_with_dict_config() -> None:
+    """
+    kloggy's handler never waits for logging's module lock while holding its own lock.
+    `dictConfig()` holds the module lock while it acquires every handler's lock, so logging from another thread could deadlock otherwise.
+    """
+
+    def test() -> None:
+        import logging
+        import threading
+
+        from kloggy import get_logger
+
+        logger = get_logger('my.foo')
+        [handler] = logging.getLogger('my').handlers
+        assert handler.lock is not None
+        with getattr(logging, '_lock'):  # what dictConfig() holds while it acquires the handlers' locks
+            t = threading.Thread(target=logger.warning, args=('some warning',))
+            t.start()
+            t.join(timeout=0.5)  # the thread blocks on the module lock
+            assert handler.lock.acquire(timeout=5)
+            handler.lock.release()
+        t.join()
+
+    run(test)
 
 
 def rich_worker(*, worker: int, items: int, queue: Any) -> None:
