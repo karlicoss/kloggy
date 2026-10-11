@@ -28,7 +28,7 @@ def test_z1_stdlib_baseline() -> None:
 
 def test_z1_not_bare() -> None:
     """
-    Without any configuration, kloggy output includes the level and the logger name.
+    Without any configuration, kloggy's output includes the level and the logger name.
     The specific format isn't checked, that's F1.
     """
 
@@ -46,11 +46,11 @@ def test_z1_not_bare() -> None:
 @pytest.mark.parametrize('setup', ['root', 'package', 'logger', 'null'])
 def test_z2_configured_after(setup: str) -> None:
     """
-    Configuring logging after kloggy set up switches kloggy output off.
+    Configuring logging after `get_logger()` stops kloggy's output.
     Each record is printed once, by the app's handlers (or not at all for a `NullHandler`).
     """
 
-    # ways the app may configure logging after kloggy set up the 'my' package logger
+    # ways the app may configure logging after kloggy added the fallback handler to the 'my' package logger
     def configure(*, setup: str) -> None:
         import logging
 
@@ -97,7 +97,7 @@ def test_z2_configured_after(setup: str) -> None:
 
 def test_z2_stays_off_when_unconfigured() -> None:
     """
-    Once the app's handler is removed again, kloggy output stays off.
+    Once the app's handler is removed again, kloggy's output doesn't come back.
     Output is then what it would be without kloggy: stdlib's levels and `logging.lastResort`.
     """
 
@@ -143,7 +143,7 @@ def test_z2_stays_off_when_configured_at_setup() -> None:
 def test_z2_stays_off_per_logger() -> None:
     """
     kloggy only steps aside for loggers logging was configured for.
-    Other loggers in the same package keep kloggy output, also after the app's handler is removed.
+    Other loggers in the same package keep kloggy's output, also after the app's handler is removed.
     """
 
     def test() -> None:
@@ -262,7 +262,7 @@ def test_z3_stray_call_before() -> None:
 
 def test_z3_stray_call_after() -> None:
     """
-    A stray `logging.warning()` after kloggy set up doesn't switch kloggy off.
+    A stray `logging.warning()` after `get_logger()` doesn't make kloggy step aside.
     kloggy's records are printed once, while other loggers' records still go to root's default handler.
     """
 

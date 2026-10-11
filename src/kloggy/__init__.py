@@ -234,7 +234,7 @@ _stepped_aside: set[str] = set()
 
 def _has_stepped_aside(logger: logging.Logger) -> bool:
     """
-    Whether kloggy is out of the picture for this logger.
+    Whether kloggy has stepped aside for this logger.
     It steps aside for good the first time it notices logging configured for the logger (Z2).
     """
     if logger.name in _stepped_aside:

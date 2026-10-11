@@ -72,7 +72,7 @@ def test_l1_configured_before_untouched(setup: str) -> None:
 
 def test_l2_info_by_default() -> None:
     """
-    Without any configuration, everything from INFO up from kloggy loggers is shown (e.g. INFO for a sense of progress), DEBUG isn't.
+    Without any configuration, everything from INFO up from `get_logger()` loggers is shown (e.g. INFO for a sense of progress), DEBUG isn't.
     """
 
     def test() -> None:
@@ -90,7 +90,7 @@ def test_l2_info_by_default() -> None:
 
 def test_l3_configured_after() -> None:
     """
-    If the app configures logging after kloggy set up (e.g. `basicConfig()` in `main()` after imports),
+    If the app configures logging after `get_logger()` (e.g. `basicConfig()` in `main()` after imports),
       the app's levels apply straight away.
     """
 
@@ -186,7 +186,7 @@ def test_l3_configured_after_on_module_logger_plain_logger() -> None:
 
 def test_l3_configured_after_more_verbose() -> None:
     """
-    If the app asks for more than INFO after kloggy set up (e.g. `basicConfig(level=DEBUG)` in `main()` after imports),
+    If the app asks for more than INFO after `get_logger()` (e.g. `basicConfig(level=DEBUG)` in `main()` after imports),
       DEBUG records show up straight away.
     """
 
@@ -261,7 +261,7 @@ def test_l3_concurrent() -> None:
 
 def test_l2_level_changed_since() -> None:
     """
-    If someone sets the package logger's level after kloggy set up, it applies.
+    If someone sets the package logger's level after `get_logger()`, it applies.
     """
 
     def test() -> None:

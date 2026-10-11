@@ -3,7 +3,10 @@
 
 - [Principles](#principles)
 - [Definitions](#definitions)
+  - [Fallback handler](#fallback-handler)
   - [Configured](#configured)
+  - [Steps aside](#steps-aside)
+  - [kloggy's output](#output)
 - [L: library-side API](#l-library-side-api)
   - [L1: Existing configuration is left untouched](#l1)
   - [L2: INFO by default](#l2)
@@ -13,7 +16,7 @@
   - [L6: Per-module default levels](#l6)
 - [Z: zero-config output](#z-zero-config-output)
   - [Z1: No bare messages](#z1)
-  - [Z2: kloggy steps aside for good once logging is configured](#z2)
+  - [Z2: kloggy steps aside permanently once logging is configured](#z2)
   - [Z3: Default `basicConfig()` handler doesn't count as configured](#z3)
   - [Z4: Output goes to the current `sys.stderr`](#z4)
 - [V: verbosity](#v-verbosity)
@@ -39,13 +42,19 @@ Requirement IDs are stable: don't renumber, retire instead.
 - **The app always wins:** kloggy's output is only a fallback while logging isn't configured.
   Once the app configures logging, its handlers and levels apply ([L1](#l1), [L3](#l3), [Z2](#z2)), and so does its own `setLevel()` ([V1](#v1)).
 - **Stdlib-shaped:** library code only deals with plain `logging.Logger` objects ([L2](#l2)),
-  so kloggy can be switched off without changing any code ([L5](#l5)).
+  so kloggy can be disabled without changing any code ([L5](#l5)).
 
 ## Definitions
 
+### Fallback handler
+
+The handler `get_logger()` adds on the top-level package logger (`pkg` for `pkg.sub.module`), once per package.
+It prints records while logging isn't [configured](#configured) ([Z1](#z1)), until kloggy [steps aside](#steps-aside).
+The handler `setup()` adds on root ([A1](#a1)) is a different one: an ordinary configuration, like `basicConfig()`'s.
+
 ### Configured
 
-Logging is configured for a logger if its records would reach some handler other than the one kloggy's `get_logger()` adds:
+Logging is configured for a logger if its records would reach some handler other than the [fallback handler](#fallback-handler):
 walking up from the logger to root, stopping at the first logger with `propagate = False`.
 Except root's default `basicConfig()` handler doesn't count, see [Z3](#z3).
 The one `setup()` adds does count, see [A1](#a1).
@@ -53,6 +62,21 @@ The one `setup()` adds does count, see [A1](#a1).
 This is the notion stdlib itself uses: `Logger.callHandlers` falls back to `logging.lastResort` only when that walk finds no handlers,
 and `Logger.hasHandlers()` does the same walk.
 Note that `basicConfig()` uses a narrower check (`root.handlers` is non-empty).
+
+### Steps aside
+
+kloggy steps aside for a logger the first time it notices logging [configured](#configured) for it, and that's permanent ([Z2](#z2)).
+From then on, the fallback handler leaves the logger's records to the app's handlers, and the logger's levels are stdlib's ([L3](#l3)):
+kloggy's default levels ([L2](#l2), [L6](#l6)) no longer apply.
+Levels from `KLOGGY_LEVEL` still do, since they're real logger levels ([V1](#v1)).
+
+<a id="output"></a>
+
+### kloggy's output
+
+What kloggy's handlers print: the [fallback handler](#fallback-handler), and the one `setup()` adds ([A1](#a1)).
+That's the format from [F1](#f1), coloured on a terminal ([F2](#f2)), with tracebacks for exceptions logged as the message ([X1](#x1)),
+written to the current `sys.stderr` ([Z4](#z4)).
 
 ## L: library-side API
 
@@ -71,13 +95,13 @@ E.g. after `basicConfig(level=ERROR)`, the app only gets errors from `pkg.*`, in
 
 **Related:**
 
-- logging configured *after* kloggy set up: see [L3](#l3), [Z2](#z2)
+- logging configured *after* `get_logger()`: see [L3](#l3), [Z2](#z2)
 
 <a id="l2"></a>
 
 ### L2: INFO by default
 
-Loggers returned by `get_logger()` show INFO while logging isn't configured, rather than stdlib's default WARNING (test: [`l2_info_by_default`](../src/kloggy/tests/test_library.py#L73 "test_l2_info_by_default")).
+While logging isn't [configured](#configured), loggers returned by `get_logger()` show INFO, rather than stdlib's default WARNING (test: [`l2_info_by_default`](../src/kloggy/tests/test_library.py#L73 "test_l2_info_by_default")).
 This is a deliberate, opinionated choice: INFO gives a sense of progress (e.g. `processing [3/100] ...`) without any setup.
 
 kloggy never sets any levels on its own: the INFO default isn't stored on any logger, so there's nothing the app could mistake for its own.
@@ -134,7 +158,7 @@ so the app never gets records below its levels (tests: [`l3_created_before_confi
 
 The function is named `get_logger`, not `getLogger`:
 
-- it isn't a pure stdlib passthrough ([L2](#l2), and it may set up the package handler),
+- it isn't a pure stdlib passthrough ([L2](#l2), and it may add the [fallback handler](#fallback-handler)),
   so the call site should make it obvious it's kloggy's, unlike `from kloggy import getLogger` vs `from logging import getLogger`
 - snake_case is PEP 8 and what newer libraries use (e.g. `structlog.get_logger`); stdlib's camelCase is legacy
 
@@ -162,8 +186,8 @@ It's read once, on the first `get_logger()` or `setup()` call.
 
 ### L6: Per-module default levels
 
-A module can pick its own default instead of INFO, e.g. `get_logger(__name__, default_level='warning')` for a module whose INFO is too chatty in a typical run
-(test: [`l6_default_level`](../src/kloggy/tests/test_library.py#L421 "test_l6_default_level")).
+With `get_logger(__name__, default_level=...)`, a module picks its own default instead of INFO ([L2](#l2)),
+e.g. `default_level='warning'` for a module whose INFO is too chatty in a typical run (test: [`l6_default_level`](../src/kloggy/tests/test_library.py#L421 "test_l6_default_level")).
 Child loggers inherit it, and the nearest default wins (test: [`l6_nearest_default`](../src/kloggy/tests/test_library.py#L441 "test_l6_nearest_default")).
 It also applies to records other code logs through the module's logger, e.g. cachew logs through the decorated function's module logger
 (test: [`l6_other_code`](../src/kloggy/tests/test_library.py#L459 "test_l6_other_code")).
@@ -194,9 +218,9 @@ It's named `default_level`, since stdlib's `level` means a level set on the logg
 
 ### Z1: No bare messages
 
-If logging isn't [configured](#configured), records from kloggy loggers are never printed as a bare message:
+While logging isn't [configured](#configured), records from packages using kloggy are never printed as a bare message:
 the output includes at least the level and the logger name (test: [`z1_not_bare`](../src/kloggy/tests/test_zero_config.py#L29 "test_z1_not_bare")).
-This holds until kloggy steps aside for a logger ([Z2](#z2)).
+This holds until kloggy [steps aside](#steps-aside) for the record's logger ([Z2](#z2)).
 
 Stdlib's fallback in that case (`logging.lastResort`) has no formatter, i.e. `%(message)s`:
 `logger.error('some error')` prints just `some error`, which looks the same as a warning and can't be traced to where it came from
@@ -210,17 +234,17 @@ Even `basicConfig()`'s default `logging.BASIC_FORMAT` (`%(levelname)s:%(name)s:%
 
 <a id="z2"></a>
 
-### Z2: kloggy steps aside for good once logging is configured
+### Z2: kloggy steps aside permanently once logging is configured
 
-Once logging is [configured](#configured) for a logger, kloggy steps aside for that logger for good:
-its handler leaves the logger's records to the app's handlers, and its levels are stdlib's ([L3](#l3)).
-So configuring logging *after* kloggy set up switches kloggy output off, and each record is printed exactly once, by the app's handlers.
+Once logging is [configured](#configured) for a logger, kloggy [steps aside](#steps-aside) for that logger, for the rest of the process:
+the fallback handler leaves the logger's records to the app's handlers, and the logger's levels are stdlib's ([L3](#l3)).
+So when the app configures logging *after* `get_logger()`, kloggy's output stops, and each record is printed exactly once, by the app's handlers.
 E.g. `basicConfig()` in the app's `main()`, a handler on the package logger or the record's own logger, a `NullHandler` (explicitly asking for silence), pytest's log capture
 (test: [`z2_configured_after`](../src/kloggy/tests/test_zero_config.py#L47 "test_z2_configured_after")).
 
 This is per logger: if the app only configures `pkg.sub` (e.g. a handler on it), kloggy keeps handling `pkg.other` (test: [`z2_stays_off_per_logger`](../src/kloggy/tests/test_zero_config.py#L143 "test_z2_stays_off_per_logger")).
 
-Removing the app's handlers later doesn't switch kloggy back on: output is then what it would be without kloggy, i.e. stdlib's `logging.lastResort`
+Removing the app's handlers later doesn't bring kloggy back: output is then what it would be without kloggy, i.e. stdlib's `logging.lastResort`
 (test: [`z2_stays_off_when_unconfigured`](../src/kloggy/tests/test_zero_config.py#L98 "test_z2_stays_off_when_unconfigured")).
 So output doesn't depend on whether logging was configured before or after `get_logger()` (test: [`z2_stays_off_when_configured_at_setup`](../src/kloggy/tests/test_zero_config.py#L121 "test_z2_stays_off_when_configured_at_setup")).
 
@@ -230,7 +254,7 @@ If the app adds and then removes handlers without logging anything in between, k
 
 **Rejected alternatives:**
 
-- resuming kloggy output once the app's handlers are removed, i.e. deciding per record like stdlib's `lastResort`:
+- resuming kloggy's output once the app's handlers are removed, i.e. deciding per record like stdlib's `lastResort`:
   output then depended on whether logging was configured before or after `get_logger()`.
   The motivation was pytest `caplog`, but pytest keeps its own handlers on root for the whole session,
   so removing caplog's handler doesn't leave logging unconfigured anyway.
@@ -239,11 +263,11 @@ If the app adds and then removes handlers without logging anything in between, k
 
 ### Z3: Default `basicConfig()` handler doesn't count as configured
 
-Root having only the handler a default `basicConfig()` creates doesn't count as [configured](#configured)
+If root's only handler is the one a default `basicConfig()` creates, that handler doesn't count towards logging being [configured](#configured)
 (tests: [`z3_stray_call_before`](../src/kloggy/tests/test_zero_config.py#L244 "test_z3_stray_call_before"), [`z3_stray_call_after`](../src/kloggy/tests/test_zero_config.py#L263 "test_z3_stray_call_after")).
 
 **Motivation:** bare root-level calls like `logging.warning(...)` call `basicConfig()` implicitly if root has no handlers.
-Without this, one such stray call anywhere (e.g. in a dependency) would switch kloggy off for the rest of the process,
+Without this, one such stray call anywhere (e.g. in a dependency) would make kloggy step aside for every logger, for the rest of the process,
 with no fix short of an explicit setup call.
 Code should use a module logger instead (ruff's [`LOG015`](https://docs.astral.sh/ruff/rules/root-logger-call/) flags such calls), but a dependency may still make them.
 
@@ -255,7 +279,7 @@ Any customisation counts as configured: format, level other than `WARNING`, file
 Then kloggy's records keep kloggy's output, while the rest of the app's output is in `BASIC_FORMAT` (test: [`z3_explicit_bare_basic_config`](../src/kloggy/tests/test_zero_config.py#L320 "test_z3_explicit_bare_basic_config")).
 
 Levels follow the same rule, no special case: with only the default handler, kloggy keeps its INFO default (test: [`z3_stray_call_keeps_info`](../src/kloggy/tests/test_zero_config.py#L337 "test_z3_stray_call_keeps_info")).
-So the accepted misfires also get INFO from kloggy packages.
+So the accepted misfires also get INFO from packages using kloggy.
 
 To avoid both, use any non-default `basicConfig()` argument; for just the levels, e.g. `logging.getLogger('pkg').setLevel(...)`.
 
@@ -273,10 +297,12 @@ So kloggy doesn't touch root's handler, and other loggers' records are unaffecte
 
 ### Z4: Output goes to the current `sys.stderr`
 
+When `sys.stderr` is replaced, [kloggy's output](#output) goes to the replacement, also if kloggy's handler was created before that
+(test: [`z4_replaced_stderr`](../src/kloggy/tests/test_zero_config.py#L356 "test_z4_replaced_stderr")).
+
 Some tools replace `sys.stderr` for a while: e.g. `contextlib.redirect_stderr` or pytest's `capsys` to capture output,
 or a [rich](https://github.com/Textualize/rich) progress bar, which prints everything written to it above the bar.
-kloggy's output goes to the replacement too, also when kloggy set up before it (test: [`z4_replaced_stderr`](../src/kloggy/tests/test_zero_config.py#L356 "test_z4_replaced_stderr")).
-So a rich progress bar doesn't mangle it (test: [`z4_rich`](../src/kloggy/tests/test_zero_config.py#L435 "test_z4_rich")).
+So a rich progress bar doesn't mangle kloggy's output (test: [`z4_rich`](../src/kloggy/tests/test_zero_config.py#L435 "test_z4_rich")).
 Colour ([F2](#f2)) is decided for the replacement as well, e.g. no colour codes in captured output (test: [`z4_colour_follows`](../src/kloggy/tests/test_zero_config.py#L379 "test_z4_colour_follows")).
 Once `sys.stderr` is switched back, kloggy doesn't hold on to the replacement, so e.g. a buffer with lots of captured output can be freed (test: [`z4_not_kept_alive`](../src/kloggy/tests/test_zero_config.py#L410 "test_z4_not_kept_alive")).
 
@@ -288,7 +314,7 @@ So its output bypasses later replacements, e.g. each line gets glued onto a froz
 Python considers this `StreamHandler` behaviour deliberate, it was closed as not a bug in [bpo-36193](https://bugs.python.org/issue36193):
 a `StreamHandler` writes to exactly the stream it was given, which suits an app's own configuration, set up once at startup.
 
-kloggy's handler is more like `lastResort`: it's created when a library is imported, and only prints while nothing is configured.
+The [fallback handler](#fallback-handler) is more like `lastResort`: it's created when a library is imported, and only prints while nothing is configured.
 
 One consequence, the same as with `lastResort`: code that redirects `sys.stderr` to silence something silences kloggy's output too
 (test: [`z4_replaced_stderr`](../src/kloggy/tests/test_zero_config.py#L356 "test_z4_replaced_stderr")).
@@ -319,7 +345,7 @@ Differences from `RUST_LOG`:
 
 - entries match by dotted name: `pkg` matches `pkg.sub`, but not `pkgfoo` (`RUST_LOG` matches by string prefix)
 - a level without a logger name only applies to packages using kloggy, and loggers without a matching entry keep their levels
-  (`RUST_LOG` applies it to everything, and switches off everything without a matching entry)
+  (`RUST_LOG` applies it to everything, and silences everything without a matching entry)
 - Python's level names, so no `trace`
 
 These are levels the user explicitly asks for, so unlike kloggy's INFO default ([L2](#l2)) they're real logger levels.
@@ -338,8 +364,8 @@ and since they're set when a package first calls `get_logger()`, the app's own `
 
 ### A1: `setup()` sets up logging for the whole app
 
-An app can call `kloggy.setup()` in its `main()` instead of `basicConfig()`,
-so every logger's output looks the same, also from libraries not using kloggy (test: [`a1_setup`](../src/kloggy/tests/test_app.py#L12 "test_a1_setup")).
+When the app calls `kloggy.setup()`, e.g. in its `main()` instead of `basicConfig()`,
+every logger gets [kloggy's output](#output), also in libraries not using kloggy (test: [`a1_setup`](../src/kloggy/tests/test_app.py#L12 "test_a1_setup")).
 
 Like `basicConfig()`, it adds a handler on root and sets root's level, INFO by default (test: [`a1_level`](../src/kloggy/tests/test_app.py#L31 "test_a1_level")).
 So it's an ordinary configuration: kloggy steps aside ([Z2](#z2)), and root's level applies to every logger,
@@ -361,8 +387,8 @@ With `KLOGGY_DISABLE` ([L5](#l5)), it's plain `basicConfig(level=...)` (test: [`
 **Considered alternatives:**
 
 - kloggy keeps handling its packages' levels after `setup()`, i.e. root's handler doesn't count as configured:
-  kloggy packages keep INFO and per-module defaults while other libraries stay at WARNING,
-  but then records need deduplicating between the package's handler and root's.
+  packages using kloggy keep INFO and per-module defaults while other libraries stay at WARNING,
+  but then records need deduplicating between the fallback handler and root's.
   Root's level for every logger is simpler, and libraries rarely log at INFO.
 
 ## F: output format
@@ -404,6 +430,9 @@ It's small, has no dependencies except `colorama` on Windows, and is actively ma
 
 ### X1: Exceptions logged as the message show their traceback
 
+When an exception is logged as the message at ERROR or above, [kloggy's output](#output) shows its traceback, even outside an `except` block
+(test: [`x1_error`](../src/kloggy/tests/test_exceptions.py#L25 "test_x1_error")).
+
 E.g. errors collected while processing, to keep going and report them at the end:
 
 ``` python
@@ -434,9 +463,7 @@ Traceback (most recent call last):
 ValueError: malformed file: b.json
 ```
 
-In kloggy's own output, an exception logged as the message at ERROR and above shows its traceback, even outside an `except` block,
-e.g. errors collected as values and logged later (test: [`x1_error`](../src/kloggy/tests/test_exceptions.py#L25 "test_x1_error")).
-That includes `logger.exception(e)` outside an `except` block, which stdlib would print with `NoneType: None` instead
+This includes `logger.exception(e)` outside an `except` block, which stdlib would print with `NoneType: None` instead
 (test: [`x1_exception_outside_handler`](../src/kloggy/tests/test_exceptions.py#L41 "test_x1_exception_outside_handler")).
 
 Below ERROR, it's just the message: e.g. warnings are often expected failures, like a skipped file (test: [`x1_warning`](../src/kloggy/tests/test_exceptions.py#L57 "test_x1_warning")).
@@ -476,7 +503,7 @@ then a lint rule could flag `logger.error(e)` as well, and fixing call sites mig
 
 ### C1: Logging from several threads at once
 
-Several threads can log at once, also with free-threaded Python: each record is printed whole, on its own line,
+When several threads log at once, also with free-threaded Python, each record is printed whole, on its own line,
 e.g. through a rich progress bar ([Z4](#z4)) (test: [`c1_threads`](../src/kloggy/tests/test_concurrency.py#L15 "test_c1_threads")).
 Concurrent logging configuration doesn't deadlock (test: [`c1_no_deadlock_with_dict_config`](../src/kloggy/tests/test_concurrency.py#L66 "test_c1_no_deadlock_with_dict_config")).
 
@@ -484,8 +511,10 @@ Concurrent logging configuration doesn't deadlock (test: [`c1_no_deadlock_with_d
 
 ### C2: Logging from several processes
 
-Other processes can't print through the main process's terminal handling, e.g. its rich progress bar: their output goes straight to the terminal.
-So workers should send their records to the main process,
-e.g. with stdlib's [`QueueHandler` recipe](https://docs.python.org/3/howto/logging-cookbook.html#logging-to-a-single-file-from-multiple-processes).
-kloggy works with that: in a worker, the `QueueHandler` counts as configured, so kloggy doesn't print there,
-and the main process prints the workers' records (test: [`c2_processes`](../src/kloggy/tests/test_concurrency.py#L113 "test_c2_processes")).
+When worker processes send their records to the main process,
+e.g. with stdlib's [`QueueHandler` recipe](https://docs.python.org/3/howto/logging-cookbook.html#logging-to-a-single-file-from-multiple-processes),
+the main process prints them, and kloggy doesn't print them in the workers, where the `QueueHandler` counts as [configured](#configured)
+(test: [`c2_processes`](../src/kloggy/tests/test_concurrency.py#L113 "test_c2_processes")).
+
+Workers should do that: other processes can't print through the main process's terminal handling, e.g. its rich progress bar,
+so their output would go straight to the terminal.

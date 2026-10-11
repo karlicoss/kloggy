@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 - if the app configures logging later (e.g. `basicConfig()` in `main()`), kloggy steps aside for good:
     no duplicates ([Z2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z2)),
     and the app's levels apply ([L3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l3))
-- a stray `logging.warning(...)` (which implicitly calls `basicConfig()`) doesn't switch kloggy off ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3))
+- a stray `logging.warning(...)` (which implicitly calls `basicConfig()`) doesn't make kloggy step aside ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3))
 - if the app already configured logging, kloggy doesn't touch it ([L1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l1))
 
 ## Using kloggy in a package
@@ -47,7 +47,7 @@ These apply even if the app configures logging.
 Output is coloured by level on a terminal, via colorlog, which also honours `NO_COLOR` and `FORCE_COLOR`
   ([F2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#f2)).
 
-If kloggy causes problems, `KLOGGY_DISABLE=1` turns it off completely, so logging behaves exactly as plain stdlib,
+If kloggy causes problems, `KLOGGY_DISABLE=1` disables it completely, so logging behaves exactly as plain stdlib,
   without changing any code ([L5](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l5)).
 
 Avoid `get_logger(__package__)`:
@@ -55,7 +55,7 @@ Avoid `get_logger(__package__)`:
 - it's `''` under `python -m` (i.e. the root logger) and `None` in a script run directly
 
 Outside `except` blocks, log exceptions with `exc_info=e`, e.g. `logger.error('while parsing %s', path, exc_info=e)`, so the traceback is kept with any logging setup
-  (kloggy's own output adds it for `logger.error(e)` anyway, [X1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#x1)).
+  (kloggy's output adds it for `logger.error(e)` anyway, [X1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#x1)).
 
 Avoid logging via the root logger (`logging.warning(...)` etc.), use the module logger instead (ruff rule [`LOG015`](https://docs.astral.sh/ruff/rules/root-logger-call/) catches these).
 Such calls implicitly call `basicConfig()`.
