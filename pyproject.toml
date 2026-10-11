@@ -19,6 +19,12 @@ Homepage = "https://github.com/karlicoss/kloggy"
 ##
 
 
+[project.optional-dependencies]
+# progress bars, see kloggy.progress (experimental)
+rich = ["rich"]
+enlighten = ["enlighten"]
+
+
 [dependency-groups]
 # TODO: not sure, on the one hand could just use 'standard' dev dependency group
 # On the other hand, it's a bit annoying that it's always included by default?
@@ -27,7 +33,8 @@ testing = [
     "pytest",
     "ruff",
 
-    "rich",  # for checking kloggy's output with rich's progress bars
+    # rich is also used directly, for checking kloggy's output with rich's progress bars (Z4)
+    "kloggy[rich,enlighten]",
     "pyte",  # terminal emulator, to check what a terminal would show
 ]
 typecheck = [

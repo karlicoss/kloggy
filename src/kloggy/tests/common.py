@@ -46,10 +46,14 @@ def run(test: Callable[..., None], *, test_format: bool = True, **kwargs: object
     # e.g. the user's own KLOGGY_LEVEL would change what tests print
     env.pop('KLOGGY_LEVEL', None)
     env.pop('KLOGGY_DISABLE', None)
+    env.pop('KLOGGY_PROGRESS', None)
     # would add or remove colour codes regardless of the stream (F2)
     # individual tests set them explicitly instead
     env.pop('FORCE_COLOR', None)
     env.pop('NO_COLOR', None)
+    # the terminal size, which many shells export: otherwise rich would size its bars for the user's terminal, e.g. wider than the tests expect
+    env.pop('COLUMNS', None)
+    env.pop('LINES', None)
     # UTF-8 on both ends, i.e. here and when decoding below, which is the default on Linux, macOS, and since Python 3.15 on Windows (PEP 686)
     # before that, Windows would use the locale's encoding, e.g. cp1252, which has no '━' that rich draws bars with
     env['PYTHONIOENCODING'] = 'utf-8'

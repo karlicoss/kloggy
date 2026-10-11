@@ -31,9 +31,15 @@
 - [C: concurrency](#c-concurrency)
   - [C1: Logging from several threads at once](#c1)
   - [C2: Logging from several processes](#c2)
+- [P: progress (experimental)](#p)
+  - [P1: Logging progress through a loop](#p1)
+  - [P2: Progress bars on a terminal](#p2)
+  - [P3: One display for the whole process](#p3)
+  - [P4: Picking a display automatically](#p4)
 
 kloggy is developed requirements-first: requirements are agreed on before they are implemented, and link to the tests validating them.
-Implementation: [`src/kloggy/__init__.py`](../src/kloggy/__init__.py), tests: [`src/kloggy/tests/`](../src/kloggy/tests/).
+Implementation: [`src/kloggy/__init__.py`](../src/kloggy/__init__.py), tests: [`src/kloggy/tests/`](../src/kloggy/tests/),
+and [`src/kloggy/progress/tests/`](../src/kloggy/progress/tests/) for progress ([P](#p)).
 
 Requirement IDs are stable: don't renumber, retire instead.
 
@@ -518,3 +524,124 @@ the main process prints them, and kloggy doesn't print them in the workers, wher
 
 Workers should do that: other processes can't print through the main process's terminal handling, e.g. its rich progress bar,
 so their output would go straight to the terminal.
+
+<a id="p"></a>
+
+## P: progress (experimental)
+
+**Experimental:** `kloggy.progress` may still change a lot, or move to a separate package, so it's not in the README.
+
+<a id="p1"></a>
+
+### P1: Logging progress through a loop
+
+When library code wraps a loop in `progress(items, logger=...)`, each item is logged before it's processed,
+e.g. `processing [ 3/10] /path/to/file` (test: [`p1_log_lines`](../src/kloggy/progress/tests/test_progress.py#L42 "test_p1_log_lines")).
+Items are numbered from 1, padded to the width of the total, so the lines line up.
+Without a total, e.g. for a generator, they're just numbered, unless `total=` is passed (test: [`p1_no_length`](../src/kloggy/progress/tests/test_progress.py#L65 "test_p1_no_length")).
+Stopping early, e.g. via `break`, is fine.
+
+The records point at the loop in the caller rather than into kloggy, e.g. in the source location of kloggy's output ([F1](#f1))
+(test: [`p1_location`](../src/kloggy/progress/tests/test_progress.py#L123 "test_p1_location")).
+
+What's logged for an item can be changed, e.g. to just the path for `(path, result)` pairs (test: [`p1_describe`](../src/kloggy/progress/tests/test_progress.py#L87 "test_p1_describe")).
+The `processing [i/n] ...` lines can be turned off, so there's only the bar, if a display shows one ([P2](#p2)),
+e.g. for thousands of events parsed from export files, where a log line for each would flood the output (test: [`p1_log_items`](../src/kloggy/progress/tests/test_progress.py#L106 "test_p1_log_items")).
+
+**Motivation:** a `processing [i/n] path` line before each file is copy-pasted in about a dozen HPI modules and exporter DALs,
+e.g. to see which file is slow, or where processing stopped.
+
+**Recommendation:** when the results come from somewhere else, e.g. an executor parsing files ahead,
+wrap the sources and zip them with the results, e.g. `zip(progress(paths, logger=logger), results, strict=True)`.
+Then each file is logged just before its results are needed, i.e. right before parsing it without an executor.
+Logging from the function an executor runs isn't a good fit: it doesn't know the item's number, nor whether a bar is shown,
+and in a process pool, its output doesn't go through the main process's terminal handling ([C2](#c2)).
+
+<a id="p2"></a>
+
+### P2: Progress bars on a terminal
+
+While a display shows a bar for a loop ([P3](#p3)), e.g. [rich](https://github.com/Textualize/rich) or [enlighten](https://github.com/Rockhopper-Technologies/enlighten) on a terminal,
+its items are logged at DEBUG rather than INFO, since the bar already shows progress (tests: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L247 "test_p2_enlighten")).
+If stderr isn't a terminal, e.g. redirected to a file, there's no bar, and items are logged at INFO (test: [`p2_not_terminal`](../src/kloggy/progress/tests/test_progress.py#L348 "test_p2_not_terminal")).
+
+The bars:
+
+- are at the bottom of the terminal, on stderr like kloggy's output, and other output goes above them.
+  rich prints what's written to the current `sys.stderr` above them ([Z4](#z4)), and enlighten limits scrolling to the rest of the terminal.
+  stdout is left alone unless it's a terminal too, e.g. if it's piped into another program (test: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"))
+- take the full width of the terminal, and the parts of all the bars line up, e.g. the `/` in `4708/?` and `94/1725`
+  (tests: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L247 "test_p2_enlighten"), [`p3_shared`](../src/kloggy/progress/tests/test_progress.py#L368 "test_p3_shared"))
+- show the stats like enlighten does: `[elapsed<remaining, rate unit/s]`
+- disappear once their loop is done (test: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"))
+
+If a loop doesn't finish, e.g. on an error, or if it stops early, its bar stays on the screen as it was, so it's visible where it stopped.
+On Ctrl-C, all the bars stay, and output after that goes below them (tests: [`p2_rich_unfinished`](../src/kloggy/progress/tests/test_progress.py#L193 "test_p2_rich_unfinished"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L247 "test_p2_enlighten")).
+
+**Caveats:**
+
+- a loop stopping early, e.g. with `hpi query --limit`, leaves its bar on the screen too:
+  from inside `progress()`, that looks the same as Ctrl-C landing outside it, e.g. in the loop's body
+- rich's bars leave the last two columns free: on Ctrl-C the terminal shows `^C` at the cursor, i.e. after the bars,
+  and if that wrapped onto a new line, rich would leave a stale copy of a bar on the screen
+- enlighten keeps the space for its bars until the process exits, since starting it again queries the terminal, which may take a while
+- enlighten shows times past an hour as e.g. `1h 01:56`, so those bars don't line up with the others
+- an app's own handler writing to the `sys.stderr` it saw when it was created, e.g. `basicConfig()`'s, bypasses rich,
+  so its lines get glued onto the bars ([Z4](#z4)).
+  Use `kloggy.setup()` instead ([A1](#a1)).
+
+<a id="p3"></a>
+
+### P3: One display for the whole process
+
+There's one display for the whole process, picked by the app via `kloggy.progress.set_display()`, or by the user via `KLOGGY_PROGRESS`, e.g. `KLOGGY_PROGRESS=rich`.
+So the bars of nested or concurrent loops show together, also from different packages (test: [`p3_shared`](../src/kloggy/progress/tests/test_progress.py#L368 "test_p3_shared")).
+Without either, there's no display, i.e. log lines only.
+
+Values are `rich`, `enlighten` and `off`, or `auto` for whichever is installed ([P4](#p4)), case-insensitive.
+`KLOGGY_PROGRESS` is read on the first `progress()` call.
+The app's `set_display()` takes precedence.
+An unknown value, or a display whose library isn't installed, is ignored with a warning naming `KLOGGY_PROGRESS` (test: [`p3_invalid`](../src/kloggy/progress/tests/test_progress.py#L450 "test_p3_invalid")).
+The libraries are optional dependencies: `kloggy[rich]` and `kloggy[enlighten]`.
+
+**Motivation:** replaces HPI's `get_enlighten()`: an enlighten manager shared by storing it on the `enlighten` module,
+a `Mock` stub if enlighten isn't installed, and `ENLIGHTEN_ENABLE` to turn it on.
+Separate enlighten managers in different packages don't work together.
+
+**Considered alternatives:**
+
+- a bar drawn by kloggy itself, without dependencies: the same problem as HPI's retired `CollapseLogsHandler`,
+  which redrew log lines in place, and broke with any other output in between
+- [tqdm](https://github.com/tqdm/tqdm): it doesn't replace `sys.stderr`, so log lines would have to go through `tqdm.write()`,
+  i.e. kloggy's handler would have to know about it
+
+**Caveats:**
+
+- `progress()` in a process-pool worker would get its own display there, fighting the main process's bars over the terminal
+- the user can't turn off bars the app picked via `set_display()`
+
+<a id="p4"></a>
+
+### P4: Picking a display automatically
+
+With `KLOGGY_PROGRESS=auto`, the display is rich if it's installed, otherwise enlighten, otherwise there's none, without a warning
+(test: [`p4_auto`](../src/kloggy/progress/tests/test_progress.py#L422 "test_p4_auto")).
+It's opt-in while progress is experimental.
+
+**rich first**, since it wins on most counts:
+
+|                        | rich                                                          | enlighten                                                                     | Winner        |
+|------------------------|---------------------------------------------------------------|-------------------------------------------------------------------------------|---------------|
+| already installed      | more often, many command-line tools depend on it              | less often                                                                    | **rich**      |
+| starting               | nothing to wait for                                           | queries the terminal: up to 5s if it doesn't answer                           | **rich**      |
+| terminal between loops | back to normal                                                | keeps the space for its bars until exit, rather than query the terminal again | **rich**      |
+| output from elsewhere  | only output via `sys.stdout`/`sys.stderr` goes above the bars | anything written to the terminal goes above the bars                          | **enlighten** |
+
+The exception is output from elsewhere, e.g. process-pool workers logging straight to the terminal,
+or an app's own handler holding on to the original `sys.stderr` ([Z4](#z4)), which would get glued onto rich's bars.
+Then pick enlighten explicitly, i.e. `KLOGGY_PROGRESS=enlighten`.
+
+**Considered alternatives:**
+
+- `auto` by default, i.e. bars whenever rich or enlighten is installed and stderr is a terminal: maybe later, once it's not experimental.
+  Anyone with rich installed would get bars, and output from elsewhere would get glued onto them.

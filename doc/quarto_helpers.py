@@ -11,7 +11,7 @@ from IPython.display import Markdown
 
 DOC = Path(__file__).parent
 REPO = DOC.parent
-TESTS = REPO / 'src' / 'kloggy' / 'tests'
+PACKAGE = REPO / 'src' / 'kloggy'
 
 
 def _collect_tests() -> dict[str, str]:
@@ -19,14 +19,15 @@ def _collect_tests() -> dict[str, str]:
     Test name -> link target relative to the doc.
     """
     res = {}
-    for path in sorted(TESTS.glob('test_*.py')):
+    # also tests of subpackages, e.g. kloggy/progress/tests
+    for path in sorted(PACKAGE.rglob('tests/test_*.py')):
         for node in ast.parse(path.read_text()).body:
             if not (isinstance(node, ast.FunctionDef) and node.name.startswith('test_')):
                 continue
             assert node.name not in res, node.name
             # relative, so links work on any branch on GitHub, and locally
             res[node.name] = f'../{path.relative_to(REPO).as_posix()}#L{node.lineno}'
-    assert len(res) > 0, TESTS
+    assert len(res) > 0, PACKAGE
     return res
 
 
