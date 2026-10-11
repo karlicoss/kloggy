@@ -239,7 +239,7 @@ Even `basicConfig()`'s default `logging.BASIC_FORMAT` (`%(levelname)s:%(name)s:%
 Once logging is [configured](#configured) for a logger, kloggy [steps aside](#steps-aside) for that logger, for the rest of the process:
 the fallback handler leaves the logger's records to the app's handlers, and the logger's levels are stdlib's ([L3](#l3)).
 So when the app configures logging *after* `get_logger()`, kloggy's output stops, and each record is printed exactly once, by the app's handlers.
-E.g. `basicConfig()` in the app's `main()`, a handler on the package logger or the record's own logger, a `NullHandler` (explicitly asking for silence), pytest's log capture
+E.g. `basicConfig(format=...)` in the app's `main()` (a bare `basicConfig()` is an exception, see [Z3](#z3)), a handler on the package logger or the record's own logger, a `NullHandler` (explicitly asking for silence), pytest's log capture
 (test: [`z2_configured_after`](../src/kloggy/tests/test_zero_config.py#L47 "test_z2_configured_after")).
 
 This is per logger: if the app only configures `pkg.sub` (e.g. a handler on it), kloggy keeps handling `pkg.other` (test: [`z2_stays_off_per_logger`](../src/kloggy/tests/test_zero_config.py#L143 "test_z2_stays_off_per_logger")).

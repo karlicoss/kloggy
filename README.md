@@ -8,20 +8,41 @@ It started as a shared helper for [HPI](https://github.com/karlicoss/HPI), [prom
 It's developed requirements-first: see [requirements](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md), linked to the tests validating them.
 Work in progress, only the requirements listed there are implemented so far.
 
+Install with `pip install kloggy` (or `uv add kloggy`).
+
 Library code gets plain stdlib loggers:
 
 ```python
+# mypkg/parse.py
 from kloggy import get_logger
 
 logger = get_logger(__name__)
+
+
+def parse(paths: list[str]) -> None:
+    for i, path in enumerate(paths, start=1):
+        logger.info('processing [%d/%d] %s', i, len(paths), path)
+        logger.debug('not shown by default')
 ```
+
+Without any logging setup, `parse(['a.json', 'b.json'])` prints to stderr
+  ([F1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#f1)):
+
+```text
+[INFO    2026-10-11 20:20:01,730 mypkg.parse parse.py:8   ] processing [1/2] a.json
+[INFO    2026-10-11 20:20:01,730 mypkg.parse parse.py:8   ] processing [2/2] b.json
+```
+
+Plain stdlib would print nothing here, since INFO is below its default WARNING.
 
 - if logging isn't configured, records are never printed as bare messages ([Z1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z1)),
     and INFO is shown, e.g. for progress ([L2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l2))
-- if the app configures logging later (e.g. `basicConfig()` in `main()`), kloggy steps aside for good:
+- if the app configures logging later (e.g. `basicConfig(level=logging.DEBUG)` in `main()`), kloggy steps aside for good:
     no duplicates ([Z2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z2)),
     and the app's levels apply ([L3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l3))
-- a stray `logging.warning(...)` (which implicitly calls `basicConfig()`) doesn't make kloggy step aside ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3))
+- a stray `logging.warning(...)` (which implicitly calls `basicConfig()`) doesn't make kloggy step aside ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3)).
+  Neither does a bare `basicConfig()` in the app, since kloggy can't tell it apart from a stray one:
+    pass some non-default argument, e.g. `level=logging.INFO` or `format=...`, or use `kloggy.setup()` instead (see below)
 - if the app already configured logging, kloggy doesn't touch it ([L1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l1))
 
 ## Using kloggy in a package
@@ -37,29 +58,18 @@ logging.getLogger('pkg.module').setLevel(logging.WARNING)  # just this module
 ```
 
 A module whose INFO is too chatty can pick its own default instead, e.g. `get_logger(__name__, default_level='warning')` ([L6](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l6)).
-Unlike `setLevel()` in the module, it's only kloggy's default, so levels set by the app or via `KLOGGY_LEVEL` still win.
+Unlike `setLevel()` in the module, it's only kloggy's default, so levels set by the app or via [`KLOGGY_LEVEL`](#environment-variables) still win.
 
-Users can set levels for packages using kloggy via the `KLOGGY_LEVEL` environment variable,
-  e.g. `KLOGGY_LEVEL=warning,pkg.sub=debug,pkg.noisy=off` ([V1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#v1)).
-The syntax follows Rust's `RUST_LOG`: `off` silences a logger completely, and the most specific entry wins.
-These apply even if the app configures logging.
+### Recommendations
 
-Output is coloured by level on a terminal, via colorlog, which also honours `NO_COLOR` and `FORCE_COLOR`
-  ([F2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#f2)).
-
-If kloggy causes problems, `KLOGGY_DISABLE=1` disables it completely, so logging behaves exactly as plain stdlib,
-  without changing any code ([L5](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l5)).
-
-Avoid `get_logger(__package__)`:
-- records lose their module name (`pkg.sub` instead of `pkg.sub.module`), so individual modules can't be configured
-- it's `''` under `python -m` (i.e. the root logger) and `None` in a script run directly
-
-Outside `except` blocks, log exceptions with `exc_info=e`, e.g. `logger.error('while parsing %s', path, exc_info=e)`, so the traceback is kept with any logging setup
-  (kloggy's output adds it for `logger.error(e)` anyway, [X1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#x1)).
-
-Avoid logging via the root logger (`logging.warning(...)` etc.), use the module logger instead (ruff rule [`LOG015`](https://docs.astral.sh/ruff/rules/root-logger-call/) catches these).
-Such calls implicitly call `basicConfig()`.
-kloggy copes with that ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3)), but an app's own `basicConfig(...)` called later is then silently ignored.
+- use `get_logger(__name__)`, not `get_logger(__package__)`:
+  - records would lose their module name (`pkg.sub` instead of `pkg.sub.module`), so individual modules can't be configured
+  - `__package__` is `''` under `python -m` (i.e. the root logger) and `None` in a script run directly
+- outside `except` blocks, pass the exception explicitly, e.g. `logger.error('while parsing %s', path, exc_info=e)`, so the traceback is kept with any logging setup
+    (kloggy's output adds it for `logger.error(e)` anyway, [X1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#x1))
+- log via the module logger, not the root logger (`logging.warning(...)` etc.), ruff rule [`LOG015`](https://docs.astral.sh/ruff/rules/root-logger-call/) catches these.
+  Such calls implicitly call `basicConfig()`.
+  kloggy copes with that ([Z3](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#z3)), but an app's own `basicConfig(...)` called later is then silently ignored.
 
 ## Using kloggy in an app
 
@@ -73,9 +83,32 @@ def main() -> None:
     kloggy.setup()  # or e.g. kloggy.setup(level='debug')
 ```
 
-Every logger then gets kloggy's output, also libraries not using kloggy, at INFO by default.
-Like `basicConfig()`, root's level applies to every logger, and `setup()` does nothing if logging is already configured.
+Every logger then gets kloggy's output, also in libraries not using kloggy.
+Like with `basicConfig()`, root's level (INFO by default) applies to every logger, unless it or an ancestor has its own level set,
+  e.g. via `logging.getLogger('pkg').setLevel(...)`.
+[`KLOGGY_LEVEL`](#environment-variables) still only applies to packages using kloggy:
+  e.g. `KLOGGY_LEVEL=vendor=off` doesn't silence a `vendor` library which doesn't use kloggy, use `logging.getLogger('vendor').setLevel(...)` for that.
+
+`setup()` does nothing if logging is already configured, e.g. by an earlier `setup()` call.
+The exception is root's default handler from a bare `basicConfig()`, e.g. a stray `logging.warning(...)`: `setup()` replaces it.
+
 `datefmt` works as in `basicConfig()`, e.g. `datefmt='%Y-%m-%d %H:%M:%S'` drops the milliseconds.
+
+## Environment variables
+
+Users running a program can adjust kloggy's behaviour without changing any code:
+
+- `KLOGGY_LEVEL` sets levels for packages using kloggy, e.g. `KLOGGY_LEVEL=warning,pkg.sub=debug,pkg.noisy=off`
+    ([V1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#v1)).
+  The syntax follows Rust's `RUST_LOG`: `off` silences a logger completely, and the most specific entry wins.
+  These levels apply even if the app configures logging.
+- `KLOGGY_DISABLE=1` disables kloggy completely, so logging behaves exactly as plain stdlib, e.g. if kloggy causes problems
+    ([L5](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l5))
+- `NO_COLOR` and `FORCE_COLOR`: output is coloured by level on a terminal, via colorlog, which honours these to disable or force colour
+    ([F2](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#f2))
+
+`KLOGGY_LEVEL` and `KLOGGY_DISABLE` are read once, on the first `get_logger()` call (`KLOGGY_DISABLE` also on `setup()`), so set them before the program starts:
+  setting `os.environ` in `main()` is usually too late, since imports have already called `get_logger()`.
 
 ## Development
 
