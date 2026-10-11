@@ -13,6 +13,7 @@
   - [Z1: No bare messages](#z1)
   - [Z2: kloggy steps aside for good once logging is configured](#z2)
   - [Z3: Default `basicConfig()` handler doesn't count as configured](#z3)
+  - [Z4: Output goes to the current `sys.stderr`](#z4)
 - [V: verbosity](#v-verbosity)
   - [V1: `KLOGGY_LEVEL` sets levels for packages using kloggy](#v1)
 - [F: output format](#f-output-format)
@@ -20,6 +21,9 @@
   - [F2: Coloured by level on a terminal](#f2)
 - [X: exceptions](#x-exceptions)
   - [X1: Exceptions logged as the message show their traceback](#x1)
+- [C: concurrency](#c-concurrency)
+  - [C1: Logging from several threads at once](#c1)
+  - [C2: Logging from several processes](#c2)
 
 kloggy is developed requirements-first: requirements are agreed on before they are implemented, and link to the tests validating them.
 Implementation: [`src/kloggy/__init__.py`](../src/kloggy/__init__.py), tests: [`src/kloggy/tests/`](../src/kloggy/tests/).
@@ -149,12 +153,12 @@ It's read once, on the first `get_logger()` call.
 ### Z1: No bare messages
 
 If logging isn't [configured](#configured), records from kloggy loggers are never printed as a bare message:
-the output includes at least the level and the logger name (test: [`z1_not_bare`](../src/kloggy/tests/test_zero_config.py#L27 "test_z1_not_bare")).
+the output includes at least the level and the logger name (test: [`z1_not_bare`](../src/kloggy/tests/test_zero_config.py#L29 "test_z1_not_bare")).
 This holds until kloggy steps aside for a logger ([Z2](#z2)).
 
 Stdlib's fallback in that case (`logging.lastResort`) has no formatter, i.e. `%(message)s`:
 `logger.error('some error')` prints just `some error`, which looks the same as a warning and can't be traced to where it came from
-(test: [`z1_stdlib_baseline`](../src/kloggy/tests/test_zero_config.py#L13 "test_z1_stdlib_baseline")).
+(test: [`z1_stdlib_baseline`](../src/kloggy/tests/test_zero_config.py#L15 "test_z1_stdlib_baseline")).
 Even `basicConfig()`'s default `logging.BASIC_FORMAT` (`%(levelname)s:%(name)s:%(message)s`, i.e. `ERROR:__main__:some error`) satisfies this.
 
 **Related:**
@@ -170,16 +174,16 @@ Once logging is [configured](#configured) for a logger, kloggy steps aside for t
 its handler leaves the logger's records to the app's handlers, and its levels are stdlib's ([L3](#l3)).
 So configuring logging *after* kloggy set up switches kloggy output off, and each record is printed exactly once, by the app's handlers.
 E.g. `basicConfig()` in the app's `main()`, a handler on the package logger or the record's own logger, a `NullHandler` (explicitly asking for silence), pytest's log capture
-(test: [`z2_configured_after`](../src/kloggy/tests/test_zero_config.py#L45 "test_z2_configured_after")).
+(test: [`z2_configured_after`](../src/kloggy/tests/test_zero_config.py#L47 "test_z2_configured_after")).
 
-This is per logger: if the app only configures `pkg.sub` (e.g. a handler on it), kloggy keeps handling `pkg.other` (test: [`z2_stays_off_per_logger`](../src/kloggy/tests/test_zero_config.py#L141 "test_z2_stays_off_per_logger")).
+This is per logger: if the app only configures `pkg.sub` (e.g. a handler on it), kloggy keeps handling `pkg.other` (test: [`z2_stays_off_per_logger`](../src/kloggy/tests/test_zero_config.py#L143 "test_z2_stays_off_per_logger")).
 
 Removing the app's handlers later doesn't switch kloggy back on: output is then what it would be without kloggy, i.e. stdlib's `logging.lastResort`
-(test: [`z2_stays_off_when_unconfigured`](../src/kloggy/tests/test_zero_config.py#L96 "test_z2_stays_off_when_unconfigured")).
-So output doesn't depend on whether logging was configured before or after `get_logger()` (test: [`z2_stays_off_when_configured_at_setup`](../src/kloggy/tests/test_zero_config.py#L119 "test_z2_stays_off_when_configured_at_setup")).
+(test: [`z2_stays_off_when_unconfigured`](../src/kloggy/tests/test_zero_config.py#L98 "test_z2_stays_off_when_unconfigured")).
+So output doesn't depend on whether logging was configured before or after `get_logger()` (test: [`z2_stays_off_when_configured_at_setup`](../src/kloggy/tests/test_zero_config.py#L121 "test_z2_stays_off_when_configured_at_setup")).
 
 kloggy notices configuration when it looks: in `get_logger()`, in a level check, or when a record reaches its handler.
-Also if another thread removes the app's handler right in the middle of a level check (test: [`z2_configuration_changes_during_level_check`](../src/kloggy/tests/test_zero_config.py#L189 "test_z2_configuration_changes_during_level_check")).
+Also if another thread removes the app's handler right in the middle of a level check (test: [`z2_configuration_changes_during_level_check`](../src/kloggy/tests/test_zero_config.py#L191 "test_z2_configuration_changes_during_level_check")).
 If the app adds and then removes handlers without logging anything in between, kloggy carries on.
 
 **Rejected alternatives:**
@@ -194,7 +198,7 @@ If the app adds and then removes handlers without logging anything in between, k
 ### Z3: Default `basicConfig()` handler doesn't count as configured
 
 Root having only the handler a default `basicConfig()` creates doesn't count as [configured](#configured)
-(tests: [`z3_stray_call_before`](../src/kloggy/tests/test_zero_config.py#L242 "test_z3_stray_call_before"), [`z3_stray_call_after`](../src/kloggy/tests/test_zero_config.py#L261 "test_z3_stray_call_after")).
+(tests: [`z3_stray_call_before`](../src/kloggy/tests/test_zero_config.py#L244 "test_z3_stray_call_before"), [`z3_stray_call_after`](../src/kloggy/tests/test_zero_config.py#L263 "test_z3_stray_call_after")).
 
 **Motivation:** bare root-level calls like `logging.warning(...)` call `basicConfig()` implicitly if root has no handlers.
 Without this, one such stray call anywhere (e.g. in a dependency) would switch kloggy off for the rest of the process,
@@ -203,12 +207,12 @@ Code should use a module logger instead (ruff's [`LOG015`](https://docs.astral.s
 
 **Detection:** root's only handler is exactly what a bare `basicConfig()` creates, and root's level is still `WARNING`.
 Any customisation counts as configured: format, level other than `WARNING`, file, handlers, or changing that handler afterwards
-(test: [`z3_configured_after_stray_call`](../src/kloggy/tests/test_zero_config.py#L286 "test_z3_configured_after_stray_call")).
+(test: [`z3_configured_after_stray_call`](../src/kloggy/tests/test_zero_config.py#L288 "test_z3_configured_after_stray_call")).
 
 **Accepted misfires**, since the state is indistinguishable: an explicit `basicConfig()`, `basicConfig(level=WARNING)` or `basicConfig(stream=sys.stderr)`.
-Then kloggy's records keep kloggy's output, while the rest of the app's output is in `BASIC_FORMAT` (test: [`z3_explicit_bare_basic_config`](../src/kloggy/tests/test_zero_config.py#L318 "test_z3_explicit_bare_basic_config")).
+Then kloggy's records keep kloggy's output, while the rest of the app's output is in `BASIC_FORMAT` (test: [`z3_explicit_bare_basic_config`](../src/kloggy/tests/test_zero_config.py#L320 "test_z3_explicit_bare_basic_config")).
 
-Levels follow the same rule, no special case: with only the default handler, kloggy keeps its INFO default (test: [`z3_stray_call_keeps_info`](../src/kloggy/tests/test_zero_config.py#L335 "test_z3_stray_call_keeps_info")).
+Levels follow the same rule, no special case: with only the default handler, kloggy keeps its INFO default (test: [`z3_stray_call_keeps_info`](../src/kloggy/tests/test_zero_config.py#L337 "test_z3_stray_call_keeps_info")).
 So the accepted misfires also get INFO from kloggy packages.
 
 To avoid both, use any non-default `basicConfig()` argument; for just the levels, e.g. `logging.getLogger('pkg').setLevel(...)`.
@@ -222,6 +226,30 @@ So kloggy doesn't touch root's handler, and other loggers' records are unaffecte
 - `propagate = False` on the package logger while root only has the default handler:
   interferes with the "configured" walk, which stops at `propagate = False`, so kloggy would have to track which flag it set itself
 - a filter on that default handler dropping records kloggy marked as printed: works, but touches root's handler
+
+<a id="z4"></a>
+
+### Z4: Output goes to the current `sys.stderr`
+
+Some tools replace `sys.stderr` for a while: e.g. `contextlib.redirect_stderr` or pytest's `capsys` to capture output,
+or a [rich](https://github.com/Textualize/rich) progress bar, which prints everything written to it above the bar.
+kloggy's output goes to the replacement too, also when kloggy set up before it (test: [`z4_replaced_stderr`](../src/kloggy/tests/test_zero_config.py#L356 "test_z4_replaced_stderr")).
+So a rich progress bar doesn't mangle it (test: [`z4_rich`](../src/kloggy/tests/test_zero_config.py#L435 "test_z4_rich")).
+Colour ([F2](#f2)) is decided for the replacement as well, e.g. no colour codes in captured output (test: [`z4_colour_follows`](../src/kloggy/tests/test_zero_config.py#L379 "test_z4_colour_follows")).
+Once `sys.stderr` is switched back, kloggy doesn't hold on to the replacement, so e.g. a buffer with lots of captured output can be freed (test: [`z4_not_kept_alive`](../src/kloggy/tests/test_zero_config.py#L410 "test_z4_not_kept_alive")).
+
+That's the same as stdlib's own fallback, `logging.lastResort`: it writes to whatever `sys.stderr` is when each record is printed.
+
+This is **unlike** `basicConfig()`'s `StreamHandler`, which keeps the `sys.stderr` it saw when it was created.
+So its output bypasses later replacements, e.g. each line gets glued onto a frozen copy of a rich progress bar.
+
+Python considers this `StreamHandler` behaviour deliberate, it was closed as not a bug in [bpo-36193](https://bugs.python.org/issue36193):
+a `StreamHandler` writes to exactly the stream it was given, which suits an app's own configuration, set up once at startup.
+
+kloggy's handler is more like `lastResort`: it's created when a library is imported, and only prints while nothing is configured.
+
+One consequence, the same as with `lastResort`: code that redirects `sys.stderr` to silence something silences kloggy's output too
+(test: [`z4_replaced_stderr`](../src/kloggy/tests/test_zero_config.py#L356 "test_z4_replaced_stderr")).
 
 ## V: verbosity
 
@@ -289,7 +317,7 @@ i.e. `[%(levelname)-7s %(asctime)s %(name)s %(filename)s:%(lineno)-4d] %(message
 
 On a terminal, the prefix in brackets is coloured by level (test: [`f2_tty`](../src/kloggy/tests/test_output_format.py#L57 "test_f2_tty")).
 [colorlog](https://github.com/borntyping/python-colorlog) does the colouring, and decides when:
-`FORCE_COLOR` colours even if the stream isn't a terminal (test: [`f2_force_color`](../src/kloggy/tests/test_output_format.py#L91 "test_f2_force_color")),
+`FORCE_COLOR` colours even if the stream isn't a terminal (test: [`f2_force_color`](../src/kloggy/tests/test_output_format.py#L89 "test_f2_force_color")),
 `NO_COLOR` disables colour, and otherwise only a terminal gets colour, e.g. not output redirected to a file (test: [`f1_format`](../src/kloggy/tests/test_output_format.py#L13 "test_f1_format")).
 
 colorlog is a hard dependency, so output looks the same everywhere.
@@ -366,3 +394,22 @@ but a logger imported from another module (`from .common import logger`) has to 
 
 Worth reconsidering once static checks can use type information, e.g. if ruff gets type-aware rules on top of ty:
 then a lint rule could flag `logger.error(e)` as well, and fixing call sites might be enough.
+
+## C: concurrency
+
+<a id="c1"></a>
+
+### C1: Logging from several threads at once
+
+Several threads can log at once, also with free-threaded Python: each record is printed whole, on its own line,
+e.g. through a rich progress bar ([Z4](#z4)) (test: [`c1_threads`](../src/kloggy/tests/test_concurrency.py#L15 "test_c1_threads")).
+
+<a id="c2"></a>
+
+### C2: Logging from several processes
+
+Other processes can't print through the main process's terminal handling, e.g. its rich progress bar: their output goes straight to the terminal.
+So workers should send their records to the main process,
+e.g. with stdlib's [`QueueHandler` recipe](https://docs.python.org/3/howto/logging-cookbook.html#logging-to-a-single-file-from-multiple-processes).
+kloggy works with that: in a worker, the `QueueHandler` counts as configured, so kloggy doesn't print there,
+and the main process prints the workers' records (test: [`c2_processes`](../src/kloggy/tests/test_concurrency.py#L87 "test_c2_processes")).

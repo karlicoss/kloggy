@@ -193,6 +193,28 @@ So kloggy doesn't touch root's handler, and other loggers' records are unaffecte
     interferes with the "configured" walk, which stops at `propagate = False`, so kloggy would have to track which flag it set itself
 - a filter on that default handler dropping records kloggy marked as printed: works, but touches root's handler
 
+### Z4: Output goes to the current `sys.stderr` {#z4}
+
+Some tools replace `sys.stderr` for a while: e.g. `contextlib.redirect_stderr` or pytest's `capsys` to capture output,
+  or a [rich](https://github.com/Textualize/rich) progress bar, which prints everything written to it above the bar.
+kloggy's output goes to the replacement too, also when kloggy set up before it `{python} tests('test_z4_replaced_stderr')`.
+So a rich progress bar doesn't mangle it `{python} tests('test_z4_rich')`.
+Colour ([F2](#f2)) is decided for the replacement as well, e.g. no colour codes in captured output `{python} tests('test_z4_colour_follows')`.
+Once `sys.stderr` is switched back, kloggy doesn't hold on to the replacement, so e.g. a buffer with lots of captured output can be freed `{python} tests('test_z4_not_kept_alive')`.
+
+That's the same as stdlib's own fallback, `logging.lastResort`: it writes to whatever `sys.stderr` is when each record is printed.
+
+This is **unlike** `basicConfig()`'s `StreamHandler`, which keeps the `sys.stderr` it saw when it was created.
+So its output bypasses later replacements, e.g. each line gets glued onto a frozen copy of a rich progress bar.
+
+Python considers this `StreamHandler` behaviour deliberate, it was closed as not a bug in [bpo-36193](https://bugs.python.org/issue36193):
+  a `StreamHandler` writes to exactly the stream it was given, which suits an app's own configuration, set up once at startup.
+
+kloggy's handler is more like `lastResort`: it's created when a library is imported, and only prints while nothing is configured.
+
+One consequence, the same as with `lastResort`: code that redirects `sys.stderr` to silence something silences kloggy's output too
+  `{python} tests('test_z4_replaced_stderr')`.
+
 ## V: verbosity
 
 ### V1: `KLOGGY_LEVEL` sets levels for packages using kloggy {#v1}
@@ -328,6 +350,21 @@ ruff's `LOG` rules catch most mistakes here, but only on objects ruff knows are 
 
 Worth reconsidering once static checks can use type information, e.g. if ruff gets type-aware rules on top of ty:
   then a lint rule could flag `logger.error(e)` as well, and fixing call sites might be enough.
+
+## C: concurrency
+
+### C1: Logging from several threads at once {#c1}
+
+Several threads can log at once, also with free-threaded Python: each record is printed whole, on its own line,
+  e.g. through a rich progress bar ([Z4](#z4)) `{python} tests('test_c1_threads')`.
+
+### C2: Logging from several processes {#c2}
+
+Other processes can't print through the main process's terminal handling, e.g. its rich progress bar: their output goes straight to the terminal.
+So workers should send their records to the main process,
+  e.g. with stdlib's [`QueueHandler` recipe](https://docs.python.org/3/howto/logging-cookbook.html#logging-to-a-single-file-from-multiple-processes).
+kloggy works with that: in a worker, the `QueueHandler` counts as configured, so kloggy doesn't print there,
+  and the main process prints the workers' records `{python} tests('test_c2_processes')`.
 
 ```{python}
 #| echo: false
