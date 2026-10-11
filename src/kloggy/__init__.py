@@ -11,7 +11,6 @@ import functools
 import logging
 import os
 import sys
-import warnings
 from typing import TextIO
 
 import colorlog
@@ -272,6 +271,9 @@ def _parse_level_spec(spec: str) -> dict[str, int]:
     Logger name -> level from a KLOGGY_LEVEL spec, e.g. 'warning,pkg.sub=debug', with '' for the default (V1).
     Like RUST_LOG, invalid entries are ignored with a warning, and a later entry for the same logger wins.
     """
+    # not at the top: importing the kloggy.warnings submodule (W1) would replace a module-level 'warnings' here
+    import warnings
+
     level_names = _level_names()
     levels: dict[str, int] = {}
     for entry in spec.split(','):
@@ -309,6 +311,9 @@ def _disabled() -> bool:
     """
     KLOGGY_DISABLE, read once, on the first get_logger() or setup() call (L5).
     """
+    # not at the top: importing the kloggy.warnings submodule (W1) would replace a module-level 'warnings' here
+    import warnings
+
     value = os.environ.get('KLOGGY_DISABLE', '')
     if value.strip().lower() in _TRUE:
         return True
