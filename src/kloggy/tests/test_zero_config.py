@@ -9,7 +9,14 @@ from typing import TextIO
 import pytest
 from rich.console import Console
 
-from .common import check_logs, rich_console, run, terminal_screen
+from .common import (
+    check_logs,
+    check_logs_same_as_stdlib,
+    rich_console,
+    run,
+    run_same_as_stdlib_once_configured,
+    terminal_screen,
+)
 
 
 def test_z1_stdlib_baseline() -> None:
@@ -81,16 +88,21 @@ def test_z2_configured_after(setup: str) -> None:
         'null': [],
     }[setup]
 
-    def test(*, configure: Callable[..., None], setup: str) -> None:
+    def test(*, configure: Callable[..., None], setup: str, use_kloggy: bool) -> None:
+        import logging
+        import sys
+
         from kloggy import get_logger
 
-        logger = get_logger('my.foo')
+        logger = (get_logger if use_kloggy else logging.getLogger)('my.foo')
         logger.warning('before')
         configure(setup=setup)
+        print('--- configured', file=sys.stderr)
         logger.warning('after')
 
-    assert run(test, configure=configure, setup=setup) == [
+    assert run_same_as_stdlib_once_configured(test, configure=configure, setup=setup) == [
         'KLOGGY WARNING my.foo: before',
+        '--- configured',
         *expected,
     ]
 
@@ -101,12 +113,12 @@ def test_z2_stays_off_when_unconfigured() -> None:
     Output is then what it would be without kloggy: stdlib's levels and `logging.lastResort`.
     """
 
-    def test() -> None:
+    def test(*, use_kloggy: bool) -> None:
         import logging
 
         from kloggy import get_logger
 
-        logger = get_logger('my.foo')
+        logger = (get_logger if use_kloggy else logging.getLogger)('my.foo')
         h = logging.StreamHandler()
         h.setFormatter(logging.Formatter('APP %(name)s: %(message)s'))
         logging.getLogger().addHandler(h)
@@ -115,7 +127,7 @@ def test_z2_stays_off_when_unconfigured() -> None:
         logger.info('some info')  # stdlib's levels apply, so no INFO
         logger.warning('unconfigured again')  # LOGS: unconfigured again
 
-    check_logs(test)
+    check_logs_same_as_stdlib(test)
 
 
 def test_z2_stays_off_when_configured_at_setup() -> None:
@@ -289,7 +301,7 @@ def test_z3_configured_after_stray_call(setup: str) -> None:
     """
     Explicitly configuring logging after a stray call still switches kloggy off,
       either via `basicConfig(force=True)` or by customising the handler the stray call created.
-    The filter kloggy added to that handler doesn't drop anything then.
+    Subsequent warnings are printed once, using the app's formatting.
     """
 
     def configure(*, setup: str) -> None:

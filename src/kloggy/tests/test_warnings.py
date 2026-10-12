@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from .common import check_logs, run
+from .common import check_logs, run, run_same_as_stdlib
 
 
 def test_w1_format() -> None:
@@ -128,7 +128,7 @@ def test_w1_disabled() -> None:
     With `KLOGGY_DISABLE`, it does nothing (L5).
     """
 
-    def test() -> None:
+    def test(*, use_kloggy: bool) -> None:
         import os
         import warnings
 
@@ -136,10 +136,13 @@ def test_w1_disabled() -> None:
 
         import kloggy.warnings
 
-        kloggy.warnings.setup()
+        if use_kloggy:
+            kloggy.warnings.setup()
         assert warnings.showwarning is getattr(warnings, '_showwarning_orig')
+        warnings.warn('some warning', stacklevel=1)
 
-    check_logs(test)
+    lines = run_same_as_stdlib(test)
+    assert re.fullmatch(r'<string>:\d+: UserWarning: some warning', lines[0]), lines
 
 
 def test_w2_once() -> None:

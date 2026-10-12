@@ -347,14 +347,18 @@ def _apply_levels(package: str) -> None:
 
 
 def get_logger(name: str, *, default_level: int | str | None = None) -> logging.Logger:
+    if _disabled():
+        # the user opted out of kloggy completely (L5), so no checks either
+        return logging.getLogger(name)
+
     if default_level is not None:
         default_level = _to_level(default_level)
 
-    if _disabled():
-        # the user opted out of kloggy completely (L5)
-        return logging.getLogger(name)
-
     logger = logging.getLogger(name)
+    # a library never owns the root logger, e.g. get_logger(__package__) is '' under python -m, and None in a script run directly (L7)
+    assert logger is not logging.getLogger(), (
+        f'get_logger() needs a module name, e.g. get_logger(__name__), got {name!r}'
+    )
     package_name = name.partition('.')[0]
     # the user asked for these explicitly, so even if the app configured logging
     _apply_levels(package_name)
