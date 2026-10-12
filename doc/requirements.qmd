@@ -174,6 +174,18 @@ It's named `default_level`, since stdlib's `level` means a level set on the logg
 - no per-module defaults, demoting chatty messages to DEBUG instead:
     doesn't help with records other code logs through the module's logger, e.g. cachew's
 
+### L7: `get_logger()` refuses the root logger {#l7}
+
+`get_logger()` with a name stdlib maps to the root logger (`''`, `None` or `'root'`) is an error `{python} tests('test_l7_root_logger')`:
+  a library never owns the root logger, so it's always a mistake,
+  e.g. `get_logger(__package__)`, since `__package__` is `''` under `python -m` and `None` in a script run directly.
+
+Otherwise kloggy would add its handler to root, so it would print every library's records,
+  and the app's `basicConfig()` would silently do nothing, since root already has a handler.
+
+Plain `logging.getLogger('')` stays fine: that's how an app gets the root logger to configure it.
+With `KLOGGY_DISABLE` ([L5](#l5)), `get_logger()` is plain `logging.getLogger()`, without this check `{python} tests('test_l7_disabled')`.
+
 ## Z: zero-config output
 
 ### Z1: No bare messages {#z1}

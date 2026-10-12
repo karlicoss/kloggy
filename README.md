@@ -65,6 +65,7 @@ Unlike `setLevel()` in the module, it's only kloggy's default, so levels set by 
 - use `get_logger(__name__)`, not `get_logger(__package__)`:
   - records would lose their module name (`pkg.sub` instead of `pkg.sub.module`), so individual modules can't be configured
   - `__package__` is `''` under `python -m` (i.e. the root logger) and `None` in a script run directly
+  - kloggy refuses the root logger, so those are an error ([L7](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#l7))
 - outside `except` blocks, pass the exception explicitly, e.g. `logger.error('while parsing %s', path, exc_info=e)`, so the traceback is kept with any logging setup
     (kloggy's output adds it for `logger.error(e)` anyway, [X1](https://github.com/karlicoss/kloggy/blob/master/doc/requirements.md#x1))
 - log via the module logger, not the root logger (`logging.warning(...)` etc.), ruff rule [`LOG015`](https://docs.astral.sh/ruff/rules/root-logger-call/) catches these.

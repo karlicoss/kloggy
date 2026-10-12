@@ -94,6 +94,58 @@ def check_logs(test: Callable[..., None], *, test_format: bool = True, **kwargs:
     assert run(test, test_format=test_format, **kwargs) == logs_from_comments(test)
 
 
+def run_same_as_stdlib(test: Callable[..., None], *, test_format: bool = True, **kwargs: object) -> list[str]:
+    """
+    Runs the function (see run()) twice, with `use_kloggy=True` and `use_kloggy=False`, and checks the output is the same.
+    The function should only use kloggy if `use_kloggy` is set, and plain stdlib otherwise, e.g. `logging.getLogger` rather than `get_logger`.
+    Returns the output.
+    """
+    with_kloggy = run(test, test_format=test_format, use_kloggy=True, **kwargs)
+    without_kloggy = run(test, test_format=test_format, use_kloggy=False, **kwargs)
+    assert with_kloggy == without_kloggy, (with_kloggy, without_kloggy)
+    return with_kloggy
+
+
+def check_logs_same_as_stdlib(test: Callable[..., None], *, test_format: bool = True, **kwargs: object) -> None:
+    """
+    Like check_logs(), and also checks the output is the same as with plain stdlib, see run_same_as_stdlib().
+    """
+    assert run_same_as_stdlib(test, test_format=test_format, **kwargs) == logs_from_comments(test)
+
+
+# printed by a test right after it configures logging, see run_same_as_stdlib_once_configured()
+CONFIGURED = '--- configured'
+
+
+def run_same_as_stdlib_once_configured(
+    test: Callable[..., None], *, test_format: bool = True, **kwargs: object
+) -> list[str]:
+    """
+    Like run_same_as_stdlib(), but only compares the output once the test configured logging,
+      i.e. after the `--- configured` line it prints: before that, kloggy's output differs by design.
+    Returns the output with kloggy.
+    """
+    with_kloggy = run(test, test_format=test_format, use_kloggy=True, **kwargs)
+    without_kloggy = run(test, test_format=test_format, use_kloggy=False, **kwargs)
+
+    def once_configured(lines: list[str]) -> list[str]:
+        assert lines.count(CONFIGURED) == 1, lines
+        return lines[lines.index(CONFIGURED) + 1 :]
+
+    assert once_configured(with_kloggy) == once_configured(without_kloggy), (with_kloggy, without_kloggy)
+    return with_kloggy
+
+
+def check_logs_same_as_stdlib_once_configured(
+    test: Callable[..., None], *, test_format: bool = True, **kwargs: object
+) -> None:
+    """
+    Like check_logs(), and also checks the output once the test configured logging is the same as with plain stdlib,
+      see run_same_as_stdlib_once_configured().
+    """
+    assert run_same_as_stdlib_once_configured(test, test_format=test_format, **kwargs) == logs_from_comments(test)
+
+
 def terminal_screen(output: str, *, columns: int = 100, rows: int = 20) -> list[str]:
     """
     Non-empty lines a terminal would show after this output, e.g. from rich, which moves the cursor around to redraw its progress bars.

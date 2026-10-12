@@ -4,7 +4,7 @@ X: exceptions.
 
 from collections.abc import Callable
 
-from .common import check_logs, run
+from .common import check_logs, check_logs_same_as_stdlib, run
 
 
 def raised() -> ValueError:
@@ -95,13 +95,13 @@ def test_x1_app_configured() -> None:
     So library code should still pass exc_info=e.
     """
 
-    def test(*, raised: Callable[[], ValueError]) -> None:
+    def test(*, raised: Callable[[], ValueError], use_kloggy: bool) -> None:
         import logging
 
         from kloggy import get_logger
 
         error = raised()
         logging.basicConfig(format='APP %(levelname)s %(name)s: %(message)s')
-        get_logger('pkg.mod').error(error)  # LOGS: APP ERROR pkg.mod: boom
+        (get_logger if use_kloggy else logging.getLogger)('pkg.mod').error(error)  # LOGS: APP ERROR pkg.mod: boom
 
-    check_logs(test, raised=raised)
+    check_logs_same_as_stdlib(test, raised=raised)

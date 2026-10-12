@@ -4,7 +4,7 @@ L5: opting out of kloggy completely via KLOGGY_DISABLE.
 
 import pytest
 
-from .common import check_logs
+from .common import check_logs, check_logs_same_as_stdlib
 
 
 def test_l5_disabled() -> None:
@@ -13,7 +13,7 @@ def test_l5_disabled() -> None:
     So logging behaves exactly as plain stdlib.
     """
 
-    def test() -> None:
+    def test(*, use_kloggy: bool) -> None:
         import logging
         import os
 
@@ -22,15 +22,18 @@ def test_l5_disabled() -> None:
 
         from kloggy import get_logger
 
-        logger = get_logger('pkg.mod')
+        logger = (get_logger if use_kloggy else logging.getLogger)('pkg.mod')
         assert type(logger) is logging.Logger, type(logger)
         package = logging.getLogger('pkg')
         assert package.handlers == [], package.handlers
         assert package.level == logging.NOTSET, package.level
+        logger.debug('some debug')  # KLOGGY_LEVEL is ignored
         logger.info('some info')  # stdlib's default WARNING
         logger.warning('some warning')  # LOGS: some warning
+        logging.basicConfig(format='APP %(levelname)s %(name)s: %(message)s')
+        logger.warning('configured')  # LOGS: APP WARNING pkg.mod: configured
 
-    check_logs(test)
+    check_logs_same_as_stdlib(test)
 
 
 @pytest.mark.parametrize(

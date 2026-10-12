@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from .common import check_logs, run
+from .common import check_logs, check_logs_same_as_stdlib_once_configured, run, run_same_as_stdlib
 
 
 @pytest.mark.parametrize('setup', ['root', 'root_level', 'package', 'null'])
@@ -65,9 +65,7 @@ def test_l1_configured_before_untouched(setup: str) -> None:
         logger.warning('some warning')
         logger.error('some error')
 
-    with_kloggy = run(test, configure=configure, setup=setup, use_kloggy=True)
-    without_kloggy = run(test, configure=configure, setup=setup, use_kloggy=False)
-    assert with_kloggy == without_kloggy == expected
+    assert run_same_as_stdlib(test, configure=configure, setup=setup) == expected
 
 
 def test_l2_info_by_default() -> None:
@@ -94,21 +92,23 @@ def test_l3_configured_after() -> None:
       the app's levels apply straight away.
     """
 
-    def test() -> None:
+    def test(*, use_kloggy: bool) -> None:
         import logging
+        import sys
 
         from kloggy import get_logger
 
-        logger = get_logger('my.foo')
+        logger = (get_logger if use_kloggy else logging.getLogger)('my.foo')
         logger.info('before 1')  # LOGS: KLOGGY INFO my.foo: before 1
         logger.info('before 2')  # LOGS: KLOGGY INFO my.foo: before 2
         logging.basicConfig(format='APP %(levelname)s %(name)s: %(message)s')
+        print('--- configured', file=sys.stderr)  # LOGS: --- configured
         logger.info('after 1')  # INFO right after configuration isn't let through
         logger.info('after 2')  # INFO right after configuration isn't let through
         logger.warning('some warning')  # LOGS: APP WARNING my.foo: some warning
         assert logging.getLogger('my').level == logging.NOTSET
 
-    check_logs(test)
+    check_logs_same_as_stdlib_once_configured(test)
 
 
 def test_l3_configured_after_plain_logger() -> None:
@@ -142,29 +142,32 @@ def test_l3_configured_after_on_module_logger() -> None:
       but the stray record isn't created in the first place.
     """
 
-    def test() -> None:
+    def test(*, use_kloggy: bool) -> None:
         import logging
+        import sys
 
         from kloggy import get_logger
 
-        logger = get_logger('my.foo')
+        logger = (get_logger if use_kloggy else logging.getLogger)('my.foo')
         logger.info('before 1')  # LOGS: KLOGGY INFO my.foo: before 1
         logger.info('before 2')  # LOGS: KLOGGY INFO my.foo: before 2
         h = logging.StreamHandler()
         h.setFormatter(logging.Formatter('APP %(levelname)s %(name)s: %(message)s'))
         logger.addHandler(h)
+        print('--- configured', file=sys.stderr)  # LOGS: --- configured
         logger.info('after 1')  # INFO right after configuration isn't let through
         logger.info('after 2')  # INFO right after configuration isn't let through
         logger.warning('some warning')  # LOGS: APP WARNING my.foo: some warning
         assert logging.getLogger('my').level == logging.NOTSET
 
-    check_logs(test)
+    check_logs_same_as_stdlib_once_configured(test)
 
 
 def test_l3_configured_after_on_module_logger_plain_logger() -> None:
     """
     Same as test_l3_configured_after_on_module_logger, but for a plain `logging.getLogger()` logger.
     It keeps stdlib's levels (no INFO by default), so there's no stray record in the first place.
+    Warnings use kloggy's fallback before configuration and the app's handler afterwards, without duplicates.
     """
 
     def test() -> None:
@@ -176,10 +179,11 @@ def test_l3_configured_after_on_module_logger_plain_logger() -> None:
         logger = logging.getLogger('my.plain')
         logger.info('before 1')  # a plain logger keeps stdlib's levels, so no INFO
         logger.info('before 2')
+        logger.warning('before')  # LOGS: KLOGGY WARNING my.plain: before
         logger.addHandler(logging.StreamHandler())  # the app's handler, prints bare messages
         logger.info('after 1')  # no stray INFO either
         logger.info('after 2')
-        logger.warning('some warning')  # LOGS: some warning
+        logger.warning('after')  # LOGS: after
 
     check_logs(test)
 
@@ -233,8 +237,8 @@ def test_l3_configured_after_on_subpackage() -> None:
 
 def test_l3_concurrent() -> None:
     """
-    Several threads logging at once right after the app configured logging don't let INFO through either.
-    The app's filter on the module logger would hold any records until all of them were created.
+    Several threads making their first logging calls after the app configures logging use its levels immediately.
+    The barrier releases the threads before the level check, so each INFO call must be suppressed.
     """
 
     def test() -> None:
@@ -243,18 +247,21 @@ def test_l3_concurrent() -> None:
 
         from kloggy import get_logger
 
-        get_logger('my.foo')
-        logger = logging.getLogger('my.plain')
+        logger = get_logger('my.foo')
+        logger.info('before configuration')  # LOGS: KLOGGY INFO my.foo: before configuration
         barrier = threading.Barrier(4)
-        logger.addFilter(lambda _record: barrier.wait(timeout=5) >= 0)
+
+        def work() -> None:
+            barrier.wait(timeout=5)
+            logger.info('stray info')
+
         logging.basicConfig(format='APP %(levelname)s %(name)s: %(message)s')
-        threads = [threading.Thread(target=logger.info, args=('stray info',)) for _ in range(4)]
+        threads = [threading.Thread(target=work) for _ in range(4)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        logger.filters.clear()
-        logger.warning('some warning')  # LOGS: APP WARNING my.plain: some warning
+        logger.warning('some warning')  # LOGS: APP WARNING my.foo: some warning
 
     check_logs(test)
 
@@ -308,7 +315,6 @@ def test_l2_app_logger_class() -> None:
 
     def test() -> None:
         import logging
-        import sys
 
         class AppLogger(logging.Logger):
             def app_method(self) -> str:
@@ -319,7 +325,7 @@ def test_l2_app_logger_class() -> None:
 
         logger = get_logger('my.foo')
         assert isinstance(logger, AppLogger)
-        print(isinstance(logger, AppLogger), logger.app_method(), file=sys.stderr)  # LOGS: True app method
+        assert logger.app_method() == 'app method'
         logger.info('some info')  # LOGS: KLOGGY INFO my.foo: some info
 
     check_logs(test)
@@ -522,17 +528,19 @@ def test_l6_app_configured() -> None:
     Once the app configures logging, the app's levels apply, same as for INFO (L3).
     """
 
-    def test() -> None:
+    def test(*, use_kloggy: bool) -> None:
         import logging
+        import sys
 
         from kloggy import get_logger
 
-        logger = get_logger('pkg.mod', default_level='warning')
+        logger = get_logger('pkg.mod', default_level='warning') if use_kloggy else logging.getLogger('pkg.mod')
         logger.info('info before')  # below the module's default
         logging.basicConfig(level=logging.INFO, format='APP %(levelname)s %(name)s: %(message)s')
+        print('--- configured', file=sys.stderr)  # LOGS: --- configured
         logger.info('info after')  # LOGS: APP INFO pkg.mod: info after
 
-    check_logs(test)
+    check_logs_same_as_stdlib_once_configured(test)
 
 
 def test_l6_last_wins() -> None:
@@ -564,5 +572,40 @@ def test_l6_invalid() -> None:
 
         with pytest.raises(AssertionError, match='loud'):
             get_logger('pkg.mod', default_level='loud')
+
+    check_logs(test)
+
+
+@pytest.mark.parametrize('name', ['', None, 'root'])
+def test_l7_root_logger(name: str | None) -> None:
+    """
+    `get_logger()` refuses the names stdlib maps to the root logger, e.g. `__package__` is `''` under `python -m`, and `None` in a script run directly.
+    """
+
+    def test(*, name: str | None) -> None:
+        import pytest
+
+        from kloggy import get_logger
+
+        with pytest.raises(AssertionError, match='needs a module name'):
+            get_logger(name)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    check_logs(test, name=name)
+
+
+def test_l7_disabled() -> None:
+    """
+    With `KLOGGY_DISABLE`, `get_logger()` is plain `logging.getLogger()`, without the check (L5).
+    """
+
+    def test() -> None:
+        import logging
+        import os
+
+        os.environ['KLOGGY_DISABLE'] = '1'
+
+        from kloggy import get_logger
+
+        assert get_logger('') is logging.getLogger()
 
     check_logs(test)

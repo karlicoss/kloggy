@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from .common import check_logs, run
+from .common import check_logs, check_logs_same_as_stdlib, run
 
 
 def test_a1_setup() -> None:
@@ -188,7 +188,7 @@ def test_a1_disabled() -> None:
     With `KLOGGY_DISABLE`, it's plain `basicConfig(level=...)`.
     """
 
-    def test() -> None:
+    def test(*, use_kloggy: bool) -> None:
         import logging
         import os
 
@@ -196,7 +196,13 @@ def test_a1_disabled() -> None:
 
         import kloggy
 
-        kloggy.setup()
+        if use_kloggy:
+            kloggy.setup(level='debug', datefmt='%H:%M')
+            logger = kloggy.get_logger('pkg.mod')
+        else:
+            logging.basicConfig(level=logging.DEBUG, datefmt='%H:%M')
+            logger = logging.getLogger('pkg.mod')
+        logger.debug('mod debug')  # LOGS: DEBUG:pkg.mod:mod debug
         logging.getLogger('other.lib').info('lib info')  # LOGS: INFO:other.lib:lib info
 
-    check_logs(test)
+    check_logs_same_as_stdlib(test)
