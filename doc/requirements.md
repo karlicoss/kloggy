@@ -641,8 +641,8 @@ and in a process pool, its output doesn't go through the main process's terminal
 ### P2: Progress bars on a terminal
 
 While a display shows a bar for a loop ([P3](#p3)), e.g. [rich](https://github.com/Textualize/rich) or [enlighten](https://github.com/Rockhopper-Technologies/enlighten) on a terminal,
-its items are logged at DEBUG rather than INFO, since the bar already shows progress (tests: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L247 "test_p2_enlighten")).
-If stderr isn't a terminal, e.g. redirected to a file, there's no bar, and items are logged at INFO (test: [`p2_not_terminal`](../src/kloggy/progress/tests/test_progress.py#L348 "test_p2_not_terminal")).
+its items are logged at DEBUG rather than INFO, since the bar already shows progress (tests: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L248 "test_p2_enlighten")).
+If stderr isn't a terminal, e.g. redirected to a file, there's no bar, and items are logged at INFO (test: [`p2_not_terminal`](../src/kloggy/progress/tests/test_progress.py#L349 "test_p2_not_terminal")).
 
 The bars:
 
@@ -650,12 +650,12 @@ The bars:
   rich prints what's written to the current `sys.stderr` above them ([Z4](#z4)), and enlighten limits scrolling to the rest of the terminal.
   stdout is left alone unless it's a terminal too, e.g. if it's piped into another program (test: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"))
 - take the full width of the terminal, and the parts of all the bars line up, e.g. the `/` in `4708/?` and `94/1725`
-  (tests: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L247 "test_p2_enlighten"), [`p3_shared`](../src/kloggy/progress/tests/test_progress.py#L368 "test_p3_shared"))
+  (tests: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L248 "test_p2_enlighten"), [`p3_shared`](../src/kloggy/progress/tests/test_progress.py#L369 "test_p3_shared"))
 - show the stats like enlighten does: `[elapsed<remaining, rate unit/s]`
 - disappear once their loop is done (test: [`p2_rich`](../src/kloggy/progress/tests/test_progress.py#L141 "test_p2_rich"))
 
 If a loop doesn't finish, e.g. on an error, or if it stops early, its bar stays on the screen as it was, so it's visible where it stopped.
-On Ctrl-C, all the bars stay, and output after that goes below them (tests: [`p2_rich_unfinished`](../src/kloggy/progress/tests/test_progress.py#L193 "test_p2_rich_unfinished"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L247 "test_p2_enlighten")).
+On Ctrl-C, all the bars stay, and output after that goes below them (tests: [`p2_rich_unfinished`](../src/kloggy/progress/tests/test_progress.py#L194 "test_p2_rich_unfinished"), [`p2_enlighten`](../src/kloggy/progress/tests/test_progress.py#L248 "test_p2_enlighten")).
 
 **Caveats:**
 
@@ -674,13 +674,13 @@ On Ctrl-C, all the bars stay, and output after that goes below them (tests: [`p2
 ### P3: One display for the whole process
 
 There's one display for the whole process, picked by the app via `kloggy.progress.set_display()`, or by the user via `KLOGGY_PROGRESS`, e.g. `KLOGGY_PROGRESS=rich`.
-So the bars of nested or concurrent loops show together, also from different packages (test: [`p3_shared`](../src/kloggy/progress/tests/test_progress.py#L368 "test_p3_shared")).
+So the bars of nested or concurrent loops show together, also from different packages (test: [`p3_shared`](../src/kloggy/progress/tests/test_progress.py#L369 "test_p3_shared")).
 Without either, there's no display, i.e. log lines only.
 
 Values are `rich`, `enlighten` and `off`, or `auto` for whichever is installed ([P4](#p4)), case-insensitive.
 `KLOGGY_PROGRESS` is read on the first `progress()` call.
 The app's `set_display()` takes precedence.
-An unknown value, or a display whose library isn't installed, is ignored with a warning naming `KLOGGY_PROGRESS` (test: [`p3_invalid`](../src/kloggy/progress/tests/test_progress.py#L450 "test_p3_invalid")).
+An unknown value, or a display whose library isn't installed, is ignored with a warning naming `KLOGGY_PROGRESS` (test: [`p3_invalid`](../src/kloggy/progress/tests/test_progress.py#L451 "test_p3_invalid")).
 The libraries are optional dependencies: `kloggy[rich]` and `kloggy[enlighten]`.
 
 **Motivation:** replaces HPI's `get_enlighten()`: an enlighten manager shared by storing it on the `enlighten` module,
@@ -704,7 +704,7 @@ Separate enlighten managers in different packages don't work together.
 ### P4: Picking a display automatically
 
 With `KLOGGY_PROGRESS=auto`, the display is rich if it's installed, otherwise enlighten, otherwise there's none, without a warning
-(test: [`p4_auto`](../src/kloggy/progress/tests/test_progress.py#L422 "test_p4_auto")).
+(test: [`p4_auto`](../src/kloggy/progress/tests/test_progress.py#L423 "test_p4_auto")).
 It's opt-in while progress is experimental.
 
 **rich first**, since it wins on most counts:
