@@ -179,8 +179,9 @@ def test_p2_rich() -> None:
         assert len(bar) == 98, bar
         warning, bar = screens[1]
         assert warning == 'KLOGGY WARNING pkg.mod: b looks odd', screens[1]
-        # the count depends on whether rich refreshed the bar since, which it does in a separate thread
-        assert re.fullmatch(r'pkg\.mod\[saved\] +\d+% ━+ \d/3 \[.*files/s\]', bar), bar
+        # Rich refreshes in a background thread, so the displayed count may lag behind.
+        # The boundary between completed and remaining work can contain half strokes ('╸' or '╺').
+        assert re.fullmatch(r'pkg\.mod\[saved\] +\d+% [━╸╺]+ \d/3 \[.*files/s\]', bar), bar
         assert terminal_screen(terminal.getvalue()) == [
             'KLOGGY WARNING pkg.mod: b looks odd',
             'KLOGGY INFO pkg.mod: done',
